@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Stock Analyst Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons Fix: Use unpkg UMD build for better compatibility -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            color: #e2e8f0; /* Slate 200 */
+        }
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+        .highlight-panel {
+            background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            box-shadow: 0 0 15px rgba(251, 191, 36, 0.1);
+        }
+        .sector-header {
+            background: linear-gradient(90deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0) 100%);
+            border-left: 4px solid #fbbf24;
+        }
+        .gold-gradient-text {
+            background: linear-gradient(135deg, #fbbf24, #d97706);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            border-color: rgba(251, 191, 36, 0.3);
+        }
+        .tag {
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 0.2rem;
+            background: rgba(255,255,255,0.1);
+            color: #94a3b8;
+        }
+        .per-tag {
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 0.2rem;
+            background: rgba(16, 185, 129, 0.1);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            font-weight: bold;
+        }
+        .sentiment-bar-bg {
+            background-color: rgba(255, 255, 255, 0.1);
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .sentiment-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #d97706, #fbbf24);
+            border-radius: 3px;
+            transition: width 1s ease-out;
+        }
+        .timeline-item {
+            position: relative;
+            padding-left: 1rem;
+            border-left: 2px solid #334155;
+            margin-bottom: 0.75rem;
+        }
+        .timeline-item:last-child {
+            margin-bottom: 0;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -5px;
+            top: 6px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #fbbf24;
+        }
+        .source-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.8rem;
+            background: rgba(51, 65, 85, 0.5);
+            border: 1px solid rgba(251, 191, 36, 0.2);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+            transition: all 0.3s;
+            min-width: fit-content;
+        }
+        .source-badge:hover {
+            background: rgba(51, 65, 85, 0.8);
+            border-color: rgba(251, 191, 36, 0.5);
+        }
+        .insight-text {
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            line-height: 1.5;
+        }
+        .stock-list-text {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+        /* Expert Specific Colors */
+        .expert-stock-artisan { color: #fbbf24; } /* Amber-400 */
+        .expert-park-doohwan { color: #22d3ee; } /* Cyan-400 */
+        .expert-stock-jaebeol { color: #4ade80; } /* Green-400 */
+        .expert-default { color: #94a3b8; } /* Slate-400 */
+        
+        /* Highlight Animation Class */
+        .card-highlight {
+            border-color: #fbbf24 !important;
+            box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.3) !important;
+            background-color: rgba(30, 41, 59, 0.9) !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <!-- Header -->
+    <header class="max-w-7xl mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-6">
+        <div>
+            <h1 class="text-4xl font-bold tracking-tight mb-2">
+                <span class="gold-gradient-text">Pro Stock</span> Insight
+            </h1>
+            <p class="text-slate-400 text-sm">전문가 분석 아카이브 & 섹터별 포트폴리오</p>
+        </div>
+        <div class="flex gap-4">
+            <div class="glass-panel px-6 py-4 rounded-xl text-center min-w-[140px]">
+                <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">총 분석 종목</p>
+                <p class="text-3xl font-bold text-white" id="total-count">0</p>
+            </div>
+            <div class="glass-panel px-6 py-4 rounded-xl text-center min-w-[140px]">
+                <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">최근 업데이트</p>
+                <p class="text-sm font-medium text-amber-400 mt-2" id="last-update">-</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- Source Summary Section -->
+    <div class="max-w-7xl mx-auto mb-8">
+        <h3 class="text-sm text-slate-500 mb-3 flex items-center gap-2 font-semibold">
+            <i data-lucide="history" class="w-4 h-4 text-amber-400"></i> 최근 반영된 분석 리포트 & 시장 전략
+        </h3>
+        <div id="source-summary-container" class="grid grid-cols-1 gap-3">
+            <!-- Badges & Insights will be injected here -->
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto">
+        
+        <!-- Top 10 Sentiment Picks -->
+        <section id="top-picks-section" class="mb-12">
+            <div class="flex items-center gap-2 mb-4">
+                <i data-lucide="crown" class="w-5 h-5 text-amber-400"></i>
+                <h2 class="text-xl font-bold text-white">종합 긍정 지수 TOP 10</h2>
+                <span class="text-xs text-slate-500 ml-2 font-normal">* 카드를 클릭하면 상세 분석으로 이동합니다</span>
+            </div>
+            <div id="top-picks-container" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <!-- Top 10 cards injected here -->
+            </div>
+        </section>
+
+        <!-- Controls / Filter -->
+        <div class="flex justify-between items-end mb-6 text-sm text-slate-500 border-b border-slate-800 pb-2">
+            <h2 class="text-lg font-semibold text-slate-300">섹터별 상세 분석</h2>
+            <span class="flex items-center gap-2 text-xs">
+                <i data-lucide="database" class="w-3 h-3"></i> 데이터 자동 동기화 중
+            </span>
+        </div>
+
+        <div id="sectorContainer" class="space-y-12">
+            <!-- Sectors will be injected here -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="hidden flex-col items-center justify-center py-20 text-slate-500">
+            <i data-lucide="inbox" class="w-16 h-16 mb-4 opacity-50"></i>
+            <p class="text-lg">등록된 분석 데이터가 없습니다.</p>
+        </div>
+    </main>
+
+    <footer class="max-w-7xl mx-auto mt-12 py-6 border-t border-slate-800 text-center text-slate-500 text-xs">
+        <p>&copy; 2026 Pro Stock Insight. All rights reserved.</p>
+    </footer>
+
+    <script>
+        // Init function to safely call Lucide
+        function initIcons() {
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                lucide.createIcons();
+            } else {
+                console.warn('Lucide icons library not loaded yet.');
+            }
+        }
+
+        // Market Strategy/Insight Summaries by Date|Expert
+        const marketInsights = {
+            '2026-02-11|주식장인': '미국 소매 판매 둔화로 금리 인하 명분 강화. 2026년 유동성 랠리 기대. 수출 실적 기반의 식품 및 화장품 섹터 집중.',
+            '2026-02-11|주식재벌': '예탁금 105조원 유지, 설 연휴 직전임에도 자금 이탈 없음. 연휴 이후 본격적인 급등장 예고. 원전, 로봇, 반도체 대장주 집중.',
+            '2026-02-09|박두환': '코스닥 활성화 정책에 따른 시장 구조 변화 주목. 건설/건자재 섹터로의 \'계절 교체\' (주택 공급 및 인프라 투자). HD현대 차익실현 후 DL이앤씨 편입.',
+            '2026-02-09|주식장인': '미국장 반등과 한국 증시 회복세. 2월 조정 가능성은 여전하므로 실적 호조 섹터(식품, 화장품, 실적 바이오)의 눌림목 매수 유효.',
+            '2026-02-09|주식재벌': '고객 예탁금 105조원 돌파, 설 연휴 이후 본격적인 급등장 대비. 코스닥 3000 정책 수혜주 및 낙폭 과대 우량주 선점 전략.',
+            '2026-02-08|주식장인': '공포 장세는 기회, 남들이 매매 못할 때 오르는 반도체 소부장 및 실적 바이오 집중. 금리 인하 사이클 유효하므로 흔들리지 말 것.',
+            '2026-02-08|박두환': '태양광 산업의 패러다임 변화: 효율의 한계를 넘는 페로브스카이트 탠덤 셀 기술 선점 기업이 핵심.',
+            '2026-02-08|주식재벌': '일론머스크의 우주 태양광 데이터센터 구상에 따른 우주/전력 인프라 주목. 스마트 글래스 및 변압기 슈퍼사이클.',
+            '2026-02-07|주식장인': '美 기술주 반등 및 금리 인하 사이클 지속. 2월 조정은 저가 매수의 기회이며 2026년 상반기까지 상승장 유효.',
+            '2026-02-06|박두환': '에너지 안보와 효율화: 대미 투자 카드로 떠오른 원전 및 차세대 전력망 기술 기업 집중.',
+            '2026-02-06|주식재벌': '코스닥 3000 시대를 이끌 로봇/배터리 대장주 및 탈중국 희토류 밸류체인 선점 전략.',
+            '2026-02-04|주식재벌': '스페이스X-XAI 합병 이슈. 우주 태양광 데이터센터 모멘텀 및 2월 주도 섹터 변화 감지.'
+        };
+
+        // State Management
+        let recommendations = [];
+        const STORAGE_KEY = 'stock_pro_data_v17'; // Keep using v17 data
+
+        // Initial Data 
+        const initialData = [
+            // [NEW] 260211 Stock Artisan Additions
+            {
+                id: 1101,
+                sector: '식품 / 소비재',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '농심',
+                code: '004370',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 90,
+                rationale: '외국인 보유 비중 지속 증가 중이나 주가는 아직 미반영. 매출/영업이익/순이익 모두 우상향 중이며 PER 12배 수준으로 저평가 매력.'
+            },
+            {
+                id: 1102,
+                sector: '식품 / 소비재',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '삼양식품',
+                code: '003230',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '불닭볶음면 한류 열풍 주역. 추세가 다소 꺾였으나 이익률은 타사 대비 월등. PER 13배 전망. 추세 전환 시 매수 유효.'
+            },
+            {
+                id: 1103,
+                sector: '식품 / 소비재',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '오리온',
+                code: '271560',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 91,
+                rationale: '배당금 40% 인상 등 주주환원 강화. 러시아/인도 시장 고성장 및 외국인 매수세 지속 유입.'
+            },
+            {
+                id: 1104,
+                sector: '식품 / 소비재',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '롯데웰푸드',
+                code: '280360',
+                price: '-',
+                targetPrice: '상향 조정',
+                sentiment: 89,
+                rationale: '2026년부터 실적 턴어라운드 본격화. 고점 대비 충분한 조정. PER 낮고 이익률 개선 기대.'
+            },
+            {
+                id: 1105,
+                sector: '화장품 / 소비재',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '아모레퍼시픽',
+                code: '090430',
+                price: '-',
+                targetPrice: '180,000원+',
+                sentiment: 92,
+                rationale: '작년 실적 호조 및 이익 체질 개선 평가. 외국인 매수세 유입 시작. 전통 대장주의 귀환 및 밸류업(배당/자사주) 기대.'
+            },
+            {
+                id: 1106,
+                sector: '화장품 / 소비재',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '에이피알',
+                code: '278470',
+                price: '-',
+                targetPrice: '신고가 유지',
+                sentiment: 93,
+                rationale: '화장품 시총 1위 굳건. 이익 케파 성장 지속되며 PER 17배로 비싸지 않음. 아모레퍼시픽, 달바글로벌과 함께 3강 체제 구축.'
+            },
+            {
+                id: 1107,
+                sector: '화장품 / 소비재',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '달바글로벌',
+                code: '000000', // Generic placeholder
+                price: '-',
+                targetPrice: '-',
+                sentiment: 91,
+                rationale: '해외 실적 호조로 외국인 비중 확대. 2월 20일 실적 발표 기대감 유효.'
+            },
+            {
+                id: 1108,
+                sector: '반도체 / IT',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: 'DB하이텍',
+                code: '000990',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 87,
+                rationale: '이익 대비 저평가(PER 11배). 매출/영업이익/순이익 모두 증가 추세. 오너 리스크보다는 실적 성장에 주목할 시점.'
+            },
+            {
+                id: 1109,
+                sector: '반도체 / IT',
+                date: '2026-02-11',
+                expert: '주식장인',
+                stockName: '솔브레인',
+                code: '357780',
+                price: '-',
+                targetPrice: '신고가 갱신',
+                sentiment: 90,
+                rationale: '상장 이래 최고 실적(영업이익/순이익) 돌파. 부채비율 16%의 안정적 재무구조. 신고가 이후 눌림목 구간은 매수 기회. PER 16배.'
+            },
+
+            // [Previous] 260211 Stock Jaebeol Additions
+            {
+                id: 1001,
+                sector: '에너지 / 원전',
+                date: '2026-02-11',
+                expert: '주식재벌',
+                stockName: '우리기술',
+                code: '032820',
+                price: '-',
+                targetPrice: '15,000원',
+                sentiment: 99,
+                rationale: '상한가 달성. 두산에너빌리티 원전 독점 공급 계약 부각. 외국인 역대급 순매수. 신고가 돌파 후 15,000원까지 무난한 상승 예상.'
+            },
+            {
+                id: 1002,
+                sector: '로봇 / 방산',
+                date: '2026-02-11',
+                expert: '주식재벌',
+                stockName: '로보티즈',
+                code: '108490',
+                price: '-',
+                targetPrice: '신고가 갱신',
+                sentiment: 97,
+                rationale: 'LG전자 로봇 사업 부각(23% 급등) 수혜. LG가 2대 주주이며 구글/MS 파트너십 보유. 기관/외국인 매집 포착. 추가 40% 상승 기대.'
+            },
+            {
+                id: 1003,
+                sector: '반도체 / IT',
+                date: '2026-02-11',
+                expert: '주식재벌',
+                stockName: '한미반도체',
+                code: '042700',
+                price: '-',
+                targetPrice: '신고가 랠리',
+                sentiment: 96,
+                rationale: 'HBM 필수 장비 TC본더 세계 점유율 1위. 마이크론 설비 투자 확대 수혜. 작년 사상 최대 매출 달성. 기관 강력 매수 지속.'
+            },
+            {
+                id: 1004,
+                sector: '로봇 / 방산',
+                date: '2026-02-11',
+                expert: '주식재벌',
+                stockName: '유진로봇',
+                code: '056080',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 92,
+                rationale: '급등 후 눌림목(4만원 선)은 매수 기회. 외국인이 주가 주도. 로봇주 상승 사이클 동참 예상.'
+            },
+            {
+                id: 1005,
+                sector: '콘텐츠 / 메타버스',
+                date: '2026-02-11',
+                expert: '주식재벌',
+                stockName: '포바이포',
+                code: '389140',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 90,
+                rationale: '텔레그램 무료 추천 후 23% 급등. 콘텐츠/VFX 기술력 부각.'
+            },
+            {
+                id: 1006,
+                sector: 'AI / 플랫폼',
+                date: '2026-02-11',
+                expert: '주식재벌',
+                stockName: '아크릴',
+                code: '450280',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 93,
+                rationale: '텔레그램 무료 추천 후 상한가(32% 수익) 달성. AI 플랫폼 기술력 부각.'
+            },
+
+            // [Previous] 260209 Park Doohwan Additions
+            {
+                id: 901,
+                sector: '금융 / 지주',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '한화',
+                code: '000880',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 92,
+                rationale: '복잡한 지주사에서 방산·에너지·해양·금융 중심의 전략 본부로 재평가. 2026년 인적분할 완료 및 자회사(에어로스페이스 등) 성과 가시화 기대.'
+            },
+            {
+                id: 902,
+                sector: '건설 / 인프라',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: 'DL이앤씨',
+                code: '375500',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 90,
+                rationale: '[학습기업 신규 편입] 압도적 재무 건전성(부채비율 84%). 2026년 주택 착공 사이클 도래 시 이익 가시성 높음. 영업이익 급증.'
+            },
+            {
+                id: 903,
+                sector: '건설 / 건자재',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: 'LX하우시스',
+                code: '108670',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '[새싹기업 편입] 신축 및 리모델링 수요 동시 보유. 주택 공급 확대 정책 및 B2C 인테리어 수요 회복 수혜.'
+            },
+            {
+                id: 904,
+                sector: '건설 / 건자재',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '벽산',
+                code: '007210',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 87,
+                rationale: '[새싹기업 편입] 안전 규제 강화로 인한 단열/내화재 수요 증가. 눈에 띄지 않지만 필수적인 구조적 강점 보유.'
+            },
+            {
+                id: 905,
+                sector: '제약 / 바이오',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '파미셀',
+                code: '005690',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 93,
+                rationale: 'AI 가속기용 저유전율 소재 매출 118% 폭증. 영업이익 역대 최대 달성. 원료의약품(API) 성장세 지속.'
+            },
+            {
+                id: 906,
+                sector: '에너지 / 원전',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '두산에너빌리티',
+                code: '034020',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 89,
+                rationale: '8MW/10MW급 해상풍력 터빈 개발 완료. 20MW급 국책 과제 참여로 차세대 시장 주도권 확보. 대형 터빈 부재 해소.'
+            },
+            {
+                id: 907,
+                sector: '에너지 / 화학',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: 'OCI',
+                code: '456040',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 89,
+                rationale: '반도체 소재 판매 증가로 4분기 흑자 전환. 100억 규모 자사주 소각 등 주주환원 강화. 스페셜티 카본블랙 증설.'
+            },
+            {
+                id: 908,
+                sector: '자동차 / 2차전지',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '롯데에너지머티리얼즈',
+                code: '020150',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 90,
+                rationale: 'AI 회로박 및 ESS 전지박 판매 확대. 4680 배터리향 공급 시작 및 전고체 소재 상용화 기대.'
+            },
+            {
+                id: 909,
+                sector: '식품 / 소비재',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '현대그린푸드',
+                code: '005440',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 86,
+                rationale: '단체급식/식자재 유통 호조로 매출 2.3조 돌파. 케어푸드 신사업 안착으로 수익 구조 견고.'
+            },
+            {
+                id: 910,
+                sector: '건설 / 지주',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: 'HDC',
+                code: '012630',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 85,
+                rationale: '중국 사업 투자 기회 모색 및 현지 개발 후보지 검토. 해외 사업 확장 의지 피력.'
+            },
+            {
+                id: 911,
+                sector: '여행 / 레저',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '하나투어',
+                code: '039130',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 87,
+                rationale: '서비스 품질 상향 평준화 및 예약센터 네트워크 강화. 브랜드 가치 제고 노력.'
+            },
+            {
+                id: 912,
+                sector: '가전 / 로봇',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: 'LG전자',
+                code: '066570',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '1월 플래그십 매장 매출 역대 최대. 웨딩 시즌 혼수 가전 수요 폭발. 구독 서비스 성장.'
+            },
+            {
+                id: 913,
+                sector: '제약 / 바이오',
+                date: '2026-02-09',
+                expert: '박두환',
+                stockName: '삼성바이오로직스',
+                code: '207940',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 91,
+                rationale: '(삼성에피스홀딩스 이슈) 바이오시밀러(솔라리스, 스텔라라) 침투율 급증으로 본업 고성장. 2030년까지 10종 이상 신제품 라인업 확보.'
+            },
+
+            // [Previous] 260209 Stock Jaebeol Additions
+            {
+                id: 801,
+                sector: '자동차 / 2차전지',
+                date: '2026-02-09',
+                expert: '주식재벌',
+                stockName: '에코프로',
+                code: '086520',
+                price: '-',
+                targetPrice: '500,000원+',
+                sentiment: 98,
+                rationale: '코스닥 3000 정책 및 연기금 100조원 투입의 최대 수혜주. 로봇 상용화를 위한 배터리 수요 폭증. 상단 매물대 저항이 적어 에코프로비엠보다 탄력적.'
+            },
+            {
+                id: 802,
+                sector: '전력 / 인프라',
+                date: '2026-02-09',
+                expert: '주식재벌',
+                stockName: '제룡전기',
+                code: '033100',
+                price: '-',
+                targetPrice: '150,000원',
+                sentiment: 97,
+                rationale: 'AI 데이터센터 전력 수요 폭증으로 인한 변압기 슈퍼사이클 지속. 기관 매집 포착 및 전고점(10만원) 돌파 후 15만원까지 상승 여력 충분.'
+            },
+            {
+                id: 803,
+                sector: '로봇 / 방산',
+                date: '2026-02-09',
+                expert: '주식재벌',
+                stockName: '클로봇',
+                code: '466100',
+                price: '-',
+                targetPrice: '100,000원 돌파',
+                sentiment: 96,
+                rationale: '현대차(보스턴다이내믹스) 파트너십 유일무이 플래티넘 등급. 현대제로 2대 주주 등극. 기관의 강력한 매집과 지지 라인 확보.'
+            },
+
+            // [NEW] 260204 Stock Jaebeol (Backfilled)
+            {
+                id: 601,
+                sector: '로봇 / 우주',
+                date: '2026-02-04',
+                expert: '주식재벌',
+                stockName: '이노스페이스',
+                code: '462350',
+                price: '-',
+                targetPrice: '50,000원+',
+                sentiment: 94,
+                rationale: '한국형 스페이스X. 일론머스크 우주 태양광 데이터센터 구상의 수혜주. 하이브리드 로켓 기술 보유.'
+            },
+            {
+                id: 602,
+                sector: '에너지 / 화학 (태양광)',
+                date: '2026-02-04',
+                expert: '주식재벌',
+                stockName: '유니테스트',
+                code: '086390',
+                price: '-',
+                targetPrice: '전고점 33,000원',
+                sentiment: 92,
+                rationale: '우주 태양광 핵심인 페로브스카이트 대면적 효율 세계 최고(20.6%). 2차 상승 파동 초입.'
+            },
+            {
+                id: 603,
+                sector: '에너지 / ESS',
+                date: '2026-02-04',
+                expert: '주식재벌',
+                stockName: '한중NCS',
+                code: '107640',
+                price: '-',
+                targetPrice: '57,200원 돌파',
+                sentiment: 90,
+                rationale: '우주/데이터센터 전력 저장(ESS) 필수인 냉각 시스템(Chiller) 제조. 적자 탈피 후 이익 급증 구간 진입.'
+            },
+            {
+                id: 604,
+                sector: '철강 / 소재',
+                date: '2026-02-04',
+                expert: '주식재벌',
+                stockName: '현대비앤지스틸',
+                code: '004560',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '희토류 영구자석 투자사(성림첨단산업) 보유. 로봇 액추에이터 핵심 소재.'
+            },
+            {
+                id: 605,
+                sector: '건설 / 인프라 / 기계',
+                date: '2026-02-04',
+                expert: '주식재벌',
+                stockName: 'SG',
+                code: '255220',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 87,
+                rationale: '우크라 재건 및 남북경협 테마. 시총 가벼워 탄력적인 상승 가능.'
+            },
+            {
+                id: 606,
+                sector: '자동차 / 2차전지',
+                date: '2026-02-04',
+                expert: '주식재벌',
+                stockName: '엠오티',
+                code: '413390',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 89,
+                rationale: '삼성SDI 밸류체인(매출 90%). 휴머노이드 로봇용 46파이 원통형 배터리 조립 장비 부각.'
+            },
+            {
+                id: 607,
+                sector: '반도체 / IT',
+                date: '2026-02-04',
+                expert: '주식재벌',
+                stockName: '선익시스템',
+                code: '171090',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 90,
+                rationale: '텔레그램 무료방 추천 후 상한가 기록. 역대급 영업이익(1115억원) 달성.'
+            },
+
+            // [Previous] 260208 Stock Jaebeol Additions
+            {
+                id: 501,
+                sector: '반도체 / IT',
+                date: '2026-02-08',
+                expert: '주식재벌',
+                stockName: '선익시스템',
+                code: '171090',
+                price: '-',
+                targetPrice: '97,200원 돌파',
+                sentiment: 97,
+                rationale: '스마트 글래스(4세대 디바이스) 핵심인 마이크로 OLED 장비 글로벌 1위. 페로브스카이트 태양전지 장비 모멘텀까지 겸비. 역대 최대 실적 기반 신고가 랠리 기대.'
+            },
+            {
+                id: 502,
+                sector: '로봇 / 우주',
+                date: '2026-02-08',
+                expert: '주식재벌',
+                stockName: '링크솔루션',
+                code: '000000', // Unlisted or generic placeholder based on transcript
+                price: '-',
+                targetPrice: '-',
+                sentiment: 92,
+                rationale: '현대차가 인수한 보스턴다이내믹스 로봇 핵심 부품 공급 및 정부 주도 K-저궤도 위성 사업 참여. 3D 프린팅 기술로 우주/로봇 부품 제조.'
+            },
+            {
+                id: 503,
+                sector: '전력 / 인프라',
+                date: '2026-02-08',
+                expert: '주식재벌',
+                stockName: '제룡전기',
+                code: '033100',
+                price: '100,000원+',
+                targetPrice: '100,000원+',
+                sentiment: 96,
+                rationale: 'AI 데이터센터 전력난의 최대 수혜(변압기 쇼티지). 영업이익 1300% 폭증하며 펀더멘털 레벨업. 북미 매출 비중 확대로 고환율 수혜.'
+            },
+            {
+                id: 504,
+                sector: '철강 / 소재',
+                date: '2026-02-08',
+                expert: '주식재벌',
+                stockName: '현대비앤지스틸',
+                code: '004560',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '상한가 이후 눌림목 구간에서 아래꼬리 달린 팽이형 캔들 출현. 재반등 시그널 포착.'
+            },
+
+            // [Previous] 260206 Stock Jaebeol
+            {
+                id: 401,
+                sector: '로봇 / 방산',
+                date: '2026-02-06',
+                expert: '주식재벌',
+                stockName: 'SPG',
+                code: '058610',
+                price: '-',
+                targetPrice: '추가 100% 상승',
+                sentiment: 96,
+                rationale: '삼성/LG 로봇 사업 필수 부품(감속기) 공급. 기관/외국인 양매수 포착. 저평가 로봇주.'
+            },
+            {
+                id: 402,
+                sector: '자동차 / 2차전지',
+                date: '2026-02-06',
+                expert: '주식재벌',
+                stockName: '에코프로',
+                code: '086520',
+                price: '-',
+                targetPrice: '500,000원+',
+                sentiment: 94,
+                rationale: '코스닥 3000 견인할 대장주. 로봇 시대 배터리 수요 증가. 에코프로비엠 대비 상단 매물대 적음.'
+            },
+            {
+                id: 403,
+                sector: '반도체 / IT',
+                date: '2026-02-06',
+                expert: '주식재벌',
+                stockName: '고영',
+                code: '098460',
+                price: '-',
+                targetPrice: '단기 급등',
+                sentiment: 92,
+                rationale: '반도체(HBM 검사), 로봇(뇌수술), 바이오(FDA 승인) 3박자. 4분기 매출 48% 급증 어닝 서프라이즈 기대.'
+            },
+
+            // [Previous] 260207 Stock Artisan
+            {
+                id: 301,
+                sector: '반도체 / IT',
+                date: '2026-02-07',
+                expert: '주식장인',
+                stockName: 'ISC',
+                code: '095340',
+                price: '-',
+                targetPrice: '신고가 갱신',
+                sentiment: 95,
+                rationale: '시장이 공포를 느낄 때 오히려 신고가를 갱신하며 올라가는 강한 종목. 반도체 소부장 내 대장주 흐름 지속. PER 15배 수준 재평가.'
+            },
+            {
+                id: 302,
+                sector: '반도체 / IT',
+                date: '2026-02-07',
+                expert: '주식장인',
+                stockName: 'HPSP',
+                code: '403870',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '애프터마켓 상승 마감. 흔들리는 시장에서도 견조한 흐름을 유지하는 소부장 핵심 종목.'
+            },
+            {
+                id: 303,
+                sector: '반도체 / IT',
+                date: '2026-02-07',
+                expert: '주식장인',
+                stockName: '리노공업',
+                code: '058470',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 85,
+                rationale: '반도체 지수 반등과 함께 플러스 마감. AI 및 비메모리 테스트 수요 증가 수혜 유효.'
+            },
+            {
+                id: 304,
+                sector: '제약 / 바이오',
+                date: '2026-02-07',
+                expert: '주식장인',
+                stockName: '셀트리온',
+                code: '068270',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 92,
+                rationale: '실적 성장과 이익 구조 개선이 뚜렷하여 외국인이 매수 중. 불안한 장세에서 믿고 갈 수 있는 실적주.'
+            },
+            {
+                id: 305,
+                sector: '제약 / 바이오',
+                date: '2026-02-07',
+                expert: '주식장인',
+                stockName: '한미약품',
+                code: '128940',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 90,
+                rationale: '외국인 및 기관 수급 유입. 실적 전망이 좋고 이익 케파가 지속적으로 늘어나는 우량주.'
+            },
+            {
+                id: 308,
+                sector: '화장품 / 소비재',
+                date: '2026-02-07',
+                expert: '주식장인',
+                stockName: '에이피알',
+                code: '278470',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 85,
+                rationale: '2월 조정장에서도 플러스 마감하며 견조한 흐름. 글로벌 홈 뷰티 디바이스 시장 성장 수혜.'
+            },
+            {
+                id: 310,
+                sector: '건설 / 인프라 / 기계',
+                date: '2026-02-07',
+                expert: '주식장인',
+                stockName: '진성티이씨',
+                code: '036890',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '미국 캐터필러 신고가 갱신 수혜주. 우크라 재건 및 트럼프 인프라 정책 모멘텀.'
+            },
+
+            // [Previous] Park Doohwan 260206 & 260208
+            {
+                id: 201,
+                sector: '에너지 / 원전',
+                date: '2026-02-06',
+                expert: '박두환',
+                stockName: '두산에너빌리티',
+                code: '034020',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 88,
+                rationale: '대미 투자 압박 해소 카드로 원전 부상. SMR 수주 파이프라인 가시화.'
+            },
+            {
+                id: 206,
+                sector: '에너지 / 화학 (태양광)',
+                date: '2026-02-06',
+                expert: '박두환',
+                stockName: '한화솔루션',
+                code: '009830',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 86,
+                rationale: '신한은행 협력으로 3억 달러 자금 확보, 북미 태양광 밸류체인 구축 가속화.'
+            },
+            {
+                id: 101,
+                sector: '에너지 / 화학 (태양광)',
+                date: '2026-02-08',
+                expert: '박두환',
+                stockName: '한화솔루션',
+                code: '009830',
+                price: '-',
+                targetPrice: '관심',
+                sentiment: 88,
+                rationale: '페로브스카이트 탠덤 셀 분야 상용화 준비가 가장 현실적인 기업.'
+            },
+            {
+                id: 102,
+                sector: '에너지 / 화학 (태양광)',
+                date: '2026-02-08',
+                expert: '박두환',
+                stockName: 'OCI홀딩스',
+                code: '010060',
+                price: '-',
+                targetPrice: '관심',
+                sentiment: 85,
+                rationale: '탠덤 태양전지 핵심 소재 폴리실리콘 공급. 안정적인 공급망 역할.'
+            },
+            {
+                id: 103,
+                sector: '에너지 / 화학 (태양광)',
+                date: '2026-02-08',
+                expert: '박두환',
+                stockName: 'OCI',
+                code: '456040',
+                price: '-',
+                targetPrice: '관심',
+                sentiment: 84,
+                rationale: '페로브스카이트 보호 소재 및 공정 기술 보유.'
+            },
+            {
+                id: 204,
+                sector: '로봇 / 방산',
+                date: '2026-02-06',
+                expert: '박두환',
+                stockName: 'LG전자',
+                code: '066570',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 86,
+                rationale: '자회사 베어로보틱스와 협력해 상업용 로봇 솔루션 성과 가시화.'
+            },
+            {
+                id: 1,
+                sector: '반도체 / IT',
+                date: '2026-02-08',
+                expert: '주식장인',
+                stockName: 'LG이노텍',
+                code: '011070',
+                price: '-',
+                targetPrice: '상향 조정',
+                sentiment: 92,
+                rationale: '아이폰17 판매 호조 및 고환율 수혜 기대. 패키지 기판 수요 증가. PER 8배 수준 도달.'
+            },
+             {
+                id: 2,
+                sector: '반도체 / IT',
+                date: '2026-02-08',
+                expert: '주식장인',
+                stockName: '삼성전자',
+                code: '005930',
+                price: '-',
+                targetPrice: '-',
+                sentiment: 85,
+                rationale: 'SK하이닉스 대비 주가 상승폭이 낮아 가격 매력 부각.'
+            },
+            {
+                id: 5,
+                sector: '제약 / 바이오',
+                date: '2026-02-08',
+                expert: '주식장인',
+                stockName: 'ligaChem Bio',
+                code: '141080',
+                price: '-',
+                targetPrice: '신고가',
+                sentiment: 95,
+                rationale: '오리온 인수 후 풍부한 자금력을 바탕으로 성장 가속화. ADC 플랫폼 고성장.'
+            }
+        ];
+
+        // Load Data on Startup
+        window.addEventListener('DOMContentLoaded', () => {
+            initIcons();
+
+            // Check if we have stored data in the new version
+            const storedData = localStorage.getItem(STORAGE_KEY);
+            
+            if (storedData) {
+                recommendations = JSON.parse(storedData);
+            } else {
+                recommendations = initialData;
+                saveToStorage();
+            }
+            
+            renderUpdateSummary();
+            const processedData = processStocks(recommendations);
+            renderTopPicks(processedData);
+            renderSectors(processedData);
+            updateStats();
+        });
+
+        // Helper: Process Data (Merge Duplicates & Calculate Avg Sentiment)
+        function processStocks(rawList) {
+            const stockMap = {};
+
+            rawList.forEach(item => {
+                const key = item.code || item.stockName;
+                if (!stockMap[key]) {
+                    stockMap[key] = {
+                        code: item.code,
+                        stockName: item.stockName,
+                        sector: item.sector,
+                        targetPrice: item.targetPrice,
+                        price: item.price,
+                        entries: []
+                    };
+                }
+
+                // Add entry
+                const perMatch = item.rationale.match(/(?:PER|P\/E)\s*(\d+(\.\d+)?)/i);
+                const perValue = perMatch ? perMatch[1] : null;
+
+                stockMap[key].entries.push({
+                    ...item,
+                    per: perValue
+                });
+
+                const currentMainDate = new Date(stockMap[key].date || 0);
+                const newEntryDate = new Date(item.date);
+                if (newEntryDate >= currentMainDate) {
+                    stockMap[key].targetPrice = item.targetPrice;
+                    stockMap[key].price = item.price;
+                    stockMap[key].date = item.date; 
+                }
+            });
+
+            return Object.values(stockMap).map(stock => {
+                const totalSentiment = stock.entries.reduce((sum, e) => sum + e.sentiment, 0);
+                const avgSentiment = Math.round(totalSentiment / stock.entries.length);
+                
+                const perSet = new Set();
+                stock.entries.forEach(e => { if(e.per) perSet.add(e.per); });
+                const displayPer = perSet.size > 0 ? Array.from(perSet).join(', ') : null;
+
+                return {
+                    ...stock,
+                    avgSentiment: avgSentiment,
+                    displayPer: displayPer,
+                    entryCount: stock.entries.length
+                };
+            });
+        }
+
+        // Helper: Get Expert Color Class
+        function getExpertColor(expertName) {
+            if (expertName.includes('주식장인')) return 'expert-stock-artisan';
+            if (expertName.includes('박두환')) return 'expert-park-doohwan';
+            if (expertName.includes('주식재벌')) return 'expert-stock-jaebeol';
+            return 'expert-default';
+        }
+
+        // Helper: Scroll To Stock Card
+        function scrollToStock(stockId) {
+            const element = document.getElementById(stockId);
+            if (element) {
+                // Smooth scroll
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Add temporary highlight effect
+                element.classList.add('card-highlight');
+                setTimeout(() => {
+                    element.classList.remove('card-highlight');
+                }, 2000);
+            } else {
+                console.warn(`Element with id ${stockId} not found.`);
+            }
+        }
+
+        // Render Top 10 Picks - Expert Count View & Click to Scroll
+        function renderTopPicks(processedStocks) {
+            const container = document.getElementById('top-picks-container');
+            
+            // Sort by Avg Sentiment Descending
+            const sorted = [...processedStocks].sort((a, b) => b.avgSentiment - a.avgSentiment);
+            const top10 = sorted.slice(0, 10); // Changed to 10
+
+            container.innerHTML = top10.map((stock, index) => {
+                // Group experts and dates
+                const expertDetails = {};
+                stock.entries.forEach(entry => {
+                    if (!expertDetails[entry.expert]) {
+                        expertDetails[entry.expert] = { count: 0, dates: new Set() };
+                    }
+                    expertDetails[entry.expert].count++;
+                    expertDetails[entry.expert].dates.add(entry.date);
+                });
+
+                // Generate HTML
+                const expertHtml = Object.entries(expertDetails).map(([expert, detail]) => {
+                    const colorClass = getExpertColor(expert);
+                    // Sort dates descending and format to MM-DD
+                    const sortedDates = Array.from(detail.dates).sort((a, b) => new Date(b) - new Date(a));
+                    const dateStr = sortedDates.map(d => d.substring(5)).join(', ');
+                    
+                    return `<div class="flex justify-between items-center text-xs mb-1 border-b border-slate-800/50 last:border-0 pb-1 last:pb-0">
+                        <div class="flex items-center gap-2">
+                            <span class="${colorClass} font-medium tracking-tight">${expert}</span>
+                            <span class="text-slate-500 text-[10px]">${dateStr}</span>
+                        </div>
+                        <span class="text-slate-400 text-[10px] bg-slate-800/80 px-1.5 py-0.5 rounded">${detail.count}회</span>
+                    </div>`;
+                }).join('');
+
+                // ID for scrolling
+                const stockId = `stock-card-${stock.stockName.replace(/\s+/g, '')}`;
+
+                return `
+                <div class="highlight-panel rounded-lg p-4 card-hover flex flex-col justify-between h-full cursor-pointer transition-transform active:scale-95" onclick="scrollToStock('${stockId}')">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs font-bold text-amber-500">TOP ${index + 1}</span>
+                        <span class="text-xs text-slate-500 font-mono">Score: ${stock.avgSentiment}</span>
+                    </div>
+                    <div class="mb-3">
+                        <h3 class="text-lg font-bold text-white leading-tight mb-1">${stock.stockName}</h3>
+                        <div class="flex items-center gap-1 text-xs text-slate-400">
+                                <span class="bg-slate-800 px-1 rounded">${stock.code}</span>
+                        </div>
+                    </div>
+                    <div class="mt-auto pt-3 border-t border-slate-700/50">
+                        <p class="text-[10px] text-slate-500 uppercase tracking-wider mb-2">추천 전문가</p>
+                        ${expertHtml}
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function renderUpdateSummary() {
+            const container = document.getElementById('source-summary-container');
+            const sources = new Set();
+            const sourceObjects = [];
+
+            recommendations.forEach(item => {
+                const key = `${item.date}|${item.expert}`;
+                if (!sources.has(key)) {
+                    sources.add(key);
+                    sourceObjects.push({
+                        date: item.date,
+                        expert: item.expert
+                    });
+                }
+            });
+
+            // Populate stocks per key
+            const stocksByKey = {};
+            recommendations.forEach(item => {
+                const key = `${item.date}|${item.expert}`;
+                if (!stocksByKey[key]) {
+                    stocksByKey[key] = [];
+                }
+                stocksByKey[key].push(item.stockName);
+            });
+
+            sourceObjects.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            container.innerHTML = sourceObjects.map(src => {
+                const colorClass = getExpertColor(src.expert);
+                const insightKey = `${src.date}|${src.expert}`;
+                const insight = marketInsights[insightKey] || '시장 전략 코멘트가 없습니다.';
+                
+                // Get recommended stocks list
+                const stocksList = stocksByKey[insightKey] ? stocksByKey[insightKey].join(', ') : '없음';
+
+                return `
+                <div class="glass-panel p-4 rounded-lg flex flex-col gap-3 border-l-4 border-slate-700/50">
+                    <div class="flex flex-col md:flex-row md:items-start gap-3">
+                        <div class="source-badge whitespace-nowrap self-start">
+                            <i data-lucide="calendar-check" class="w-3 h-3 ${colorClass}"></i>
+                            <span class="font-bold ${colorClass}">${src.expert}</span>
+                            <span class="text-slate-400 border-l border-slate-600 pl-2 ml-1 text-xs">${src.date}</span>
+                        </div>
+                        <div class="flex-1">
+                            <p class="insight-text mb-2"><span class="text-amber-500/80 font-bold mr-1 text-xs uppercase tracking-wider">Strategy</span> ${insight}</p>
+                            <p class="stock-list-text"><span class="text-slate-400 font-semibold mr-1 text-xs uppercase tracking-wider">Picks</span> <span class="${colorClass}">${stocksList}</span></p>
+                        </div>
+                    </div>
+                </div>
+            `}).join('');
+            
+            initIcons();
+        }
+
+        // Render Sectors
+        function renderSectors(processedStocks) {
+            const container = document.getElementById('sectorContainer');
+            const emptyState = document.getElementById('emptyState');
+            
+            container.innerHTML = '';
+
+            if (processedStocks.length === 0) {
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+                emptyState.classList.remove('flex');
+            }
+
+            // Group processed stocks by sector
+            const sectors = {};
+            processedStocks.forEach(stock => {
+                if (!sectors[stock.sector]) sectors[stock.sector] = [];
+                sectors[stock.sector].push(stock);
+            });
+
+            Object.keys(sectors).forEach(sectorName => {
+                const sectorSection = document.createElement('div');
+                sectorSection.className = 'mb-10 animate-fade-in';
+                
+                // Header
+                const headerHtml = `
+                    <div class="flex items-center gap-3 mb-6 sector-header pl-4 py-2 rounded-r-lg">
+                        <h2 class="text-2xl font-bold text-white tracking-tight">${sectorName}</h2>
+                        <span class="text-xs text-slate-400 bg-slate-800 px-2 py-1 rounded-full border border-slate-700">
+                            ${sectors[sectorName].length} 종목
+                        </span>
+                    </div>
+                `;
+                
+                // Grid
+                const gridHtml = document.createElement('div');
+                gridHtml.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6';
+
+                sectors[sectorName].forEach(stock => {
+                    // Sort entries desc date
+                    stock.entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+                    
+                    const isMulti = stock.entryCount > 1;
+                    const colSpanClass = isMulti ? 'md:col-span-2' : '';
+                    const bgClass = isMulti ? 'bg-slate-800/80 border-amber-500/50' : 'glass-panel';
+
+                    const card = document.createElement('div');
+                    // Add ID for scroll target
+                    const stockId = `stock-card-${stock.stockName.replace(/\s+/g, '')}`;
+                    card.id = stockId;
+                    
+                    card.className = `${bgClass} rounded-xl p-6 transition duration-300 card-hover flex flex-col h-full border border-slate-700/50 ${colSpanClass}`;
+                    
+                    // PER Tag Logic
+                    const perTagHtml = stock.displayPer ? `<span class="per-tag ml-2">PER ${stock.displayPer}배</span>` : '';
+
+                    // History Content
+                    let contentHtml = '';
+                    if (isMulti) {
+                        contentHtml = `<div class="space-y-4 max-h-80 overflow-y-auto pr-2 custom-scrollbar">`;
+                        stock.entries.forEach(entry => {
+                            const expertColorClass = getExpertColor(entry.expert);
+                            contentHtml += `
+                                <div class="timeline-item">
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs font-bold ${expertColorClass}">${entry.expert} <span class="text-slate-500 font-normal">(${entry.date})</span></span>
+                                        <span class="text-xs text-amber-500/80">지수: ${entry.sentiment}</span>
+                                    </div>
+                                    <p class="text-slate-300 text-sm leading-relaxed">${entry.rationale}</p>
+                                </div>
+                            `;
+                        });
+                        contentHtml += `</div>`;
+                    } else {
+                        const entry = stock.entries[0];
+                        const expertColorClass = getExpertColor(entry.expert);
+                        contentHtml = `
+                            <div class="bg-slate-900/50 rounded-lg p-3 border border-slate-800 h-full">
+                                <p class="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">${entry.rationale} <span class="text-xs font-bold ${expertColorClass} whitespace-nowrap">(${entry.date} ${entry.expert})</span></p>
+                            </div>
+                        `;
+                    }
+
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="tag border border-slate-600">${stock.code || 'CODE'}</span>
+                                    ${isMulti ? '<span class="tag bg-amber-500/20 text-amber-400 border-amber-500/30">누적 추천 ' + stock.entryCount + '회</span>' : '<span class="text-xs text-slate-400">Target</span>'}
+                                </div>
+                                <div class="flex items-center">
+                                    <h3 class="text-xl font-bold text-white tracking-tight leading-snug">${stock.stockName}</h3>
+                                    ${perTagHtml}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-lg font-bold text-amber-400">${stock.targetPrice || '-'}</span>
+                            </div>
+                        </div>
+
+                        <!-- Sentiment Bar -->
+                        <div class="mb-4">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">종합 긍정 지수</span>
+                                <span class="text-amber-500 font-bold">${stock.avgSentiment} / 100</span>
+                            </div>
+                            <div class="sentiment-bar-bg">
+                                <div class="sentiment-bar-fill" style="width: ${stock.avgSentiment}%"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex-grow">
+                            ${contentHtml}
+                        </div>
+
+                        ${stock.price && stock.price !== '-' ? `
+                        <div class="mt-4 pt-3 border-t border-slate-700/50 flex justify-between items-center text-xs text-slate-400">
+                            <span>현재가/매수가</span>
+                            <span class="text-slate-200 font-mono">₩ ${stock.price}</span>
+                        </div>` : ''}
+                    `;
+                    gridHtml.appendChild(card);
+                });
+
+                sectorSection.innerHTML = headerHtml;
+                sectorSection.appendChild(gridHtml);
+                container.appendChild(sectorSection);
+            });
+            
+            initIcons();
+        }
+
+        // Helper Functions
+        function saveToStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(recommendations));
+        }
+
+        function updateStats() {
+            const uniqueStocks = new Set(recommendations.map(r => r.code || r.stockName)).size;
+            document.getElementById('total-count').textContent = uniqueStocks;
+            
+            if(recommendations.length > 0) {
+                const now = new Date();
+                document.getElementById('last-update').textContent = now.toLocaleDateString() + ' ' + now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            } else {
+                document.getElementById('last-update').textContent = '-';
+            }
+        }
+    </script>
+</body>
+</html>
