@@ -2,9 +2,8 @@
 # 0. 그래픽 엔진 설정 (파일 저장 모드)
 # ==========================================
 import matplotlib
-
 # 화면 표시 없이 내부에서 이미지 생성 (충돌 방지)
-matplotlib.use('Agg')
+matplotlib.use('Agg') 
 
 import backtrader as bt
 import pandas as pd
@@ -14,152 +13,171 @@ from datetime import time
 from collections import defaultdict
 import matplotlib.pyplot as plt
 
-
 # ==========================================
 # [전략] 일봉 급등주 돌파 (5% 고정 진입)
 # ==========================================
 class CustomDailyStrategy(bt.Strategy):
     """
-    [📢 영웅문 [0150] 조건검색식 설정 가이드 (5% 돌파 전략)]
+    [📢 영웅문 [0150] 조건검색식 설정 가이드]
     ----------------------------------------------------------------------
     ※ 아래 순서대로 입력하고 [조건추가]를 누르세요.
     ※ [대상변경]: 관리종목, 거래정지, 정리매매, ETN, 스팩, ETF 제외 체크
 
     A. [주가등락률] [일] 1봉전(전일) 종가 대비 0봉전(금일) 고가 등락률 5% 이상
-       (설명: 장중 5% 이상 상승한 종목을 실시간 포착)
-
+       (설명: 장중 5% 이상 상승한 종목을 실시간 포착 - 진입 트리거)
+    
     B. [거래대금] [일] 5000 이상 (단위:백만)
        (설명: 당일 거래대금 50억 원 이상, 유동성 확보)
-
+       
     C. [주가이동평균비교] [일] 0봉전 3이평 > 5이평 (종가기준)
        (설명: 3일선이 5일선보다 위에 있는 단기 정배열 상태)
-
+       
     D. [가격-이동평균비교] [일] 0봉전 (종가+고가+저가)/3 >= 10이평
        or [Bollinger Band] 기간:10, 승수:2, 종가가 상한선 이상
        (설명: 볼린저 밴드 상단 돌파 또는 상승 추세 확인)
 
     ----------------------------------------------------------------------
-    [백테스팅 매매 로직]
-    1. 매수: 위 조건 A~D를 만족하고, 주가가 전일 대비 +5% 가격에 도달했을 때 진입 가정
-       (※ 시가가 +5% 위에서 시작하면 시가 매수, 아니면 +5% 가격 매수)
-    2. 매도: 3일 이동평균선이 5일 이동평균선을 하향 돌파(데드크로스) 시 종가 청산
+    [백테스팅 매매 로직 (Simulation Logic)]
+    1. 매수: 
+       - 위 검색식 조건(A~D)을 모두 만족하는 종목 중,
+       - 장중 주가가 '전일 종가 + 5%' 가격에 도달하는 순간 매수 체결로 가정.
+       - 만약 시가가 이미 +5% 이상 갭상승 출발했다면 '시가'에 매수.
+       
+    2. 매도: 
+       - 3일 이동평균선이 5일 이동평균선을 하향 돌파(데드크로스) 시 종가 청산.
     ----------------------------------------------------------------------
     """
     params = (
-        ('target_pct', 0.05),  # [고정] 진입 목표 상승률 5%
-        ('ma_fast', 3),  # 3일
-        ('ma_slow', 5),  # 5일
-        ('boll_period', 10),  # 볼린저밴드 기간
-        ('boll_dev', 2.0),  # 볼린저밴드 승수
+        ('target_pct', 0.05),  # 5%
+        ('ma_fast', 3),        # 3일
+        ('ma_slow', 5),        # 5일
+        ('boll_period', 10),   # 볼린저밴드 기간
+        ('boll_dev', 2.0),     # 볼린저밴드 승수
         ('debug', False),
     )
 
     def __init__(self):
-        # 이동평균선
         self.ma3 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_fast)
         self.ma5 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_slow)
-
-        # 볼린저 밴드
+        
         typical_price = (self.data.high + self.data.low + self.data.close) / 3.0
         self.bband = bt.indicators.BollingerBands(typical_price, period=self.p.boll_period, devfactor=self.p.boll_dev)
-
+        
         self.order = None
         self.buy_size = 0
         self.trades_history = []
         self.manual_entry_price = 0
-
-        # 차트 표기를 위한 매수 지점 저장소 (날짜, 가격)
+        
+        # 차트 표기를 위한 매수/매도 지점 저장소 (날짜, 가격)
         self.buy_points = []
+        self.sell_points = []
 
     def notify_order(self, order):
         if order.status in [order.Completed]:
+            dt = bt.num2date(order.executed.dt).date()
+            
             if order.isbuy():
                 self.buy_size = order.executed.size
-
-                # 매수 체결 시점과 가격(가정 진입가)을 기록
-                dt = bt.num2date(order.executed.dt).date()
-                price = self.manual_entry_price
+                # 매수 시점 기록 (가정 진입가)
+                price = self.manual_entry_price 
                 self.buy_points.append((dt, price))
-
+                
+            elif order.issell():
+                # 매도 시점 기록 (실제 체결가)
+                price = order.executed.price
+                self.sell_points.append((dt, price))
+                
             self.bar_executed = len(self)
         self.order = None
 
     def notify_trade(self, trade):
         if not trade.isclosed: return
-
+        
         entry_price = self.manual_entry_price
         exit_price = trade.price
-
+        
         if entry_price != 0:
-            # 실제 수익금 재계산 (주당 차익 * 수량)
             real_pnl = (exit_price - entry_price) * abs(self.buy_size)
-            # 투자금 대비 수익률
             profit_pct = ((exit_price - entry_price) / entry_price) * 100
         else:
             profit_pct = 0.0
             real_pnl = 0
-
+        
         close_date = bt.num2date(trade.dtclose)
 
         self.trades_history.append({
             'date': close_date,
             'profit_pct': profit_pct,
-            'pnl': real_pnl,
+            'pnl': real_pnl, 
             'is_win': real_pnl > 0,
-            'entry_price': entry_price,  # 상세 로그용
-            'exit_price': exit_price  # 상세 로그용
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'status': 'Closed' # 청산 완료
         })
+
+    # [추가] 시뮬레이션 종료 시 미청산 물량 처리
+    def stop(self):
+        if self.position:
+            # 현재가로 가상 청산 처리하여 리포트에 포함 (선택사항)
+            current_price = self.data.close[0]
+            entry_price = self.manual_entry_price
+            
+            if entry_price != 0:
+                pnl = (current_price - entry_price) * abs(self.position.size)
+                pct = ((current_price - entry_price) / entry_price) * 100
+                
+                self.trades_history.append({
+                    'date': self.data.datetime.date(0),
+                    'profit_pct': pct,
+                    'pnl': pnl,
+                    'is_win': pnl > 0,
+                    'entry_price': entry_price,
+                    'exit_price': current_price,
+                    'status': 'Holding' # 보유 중
+                })
 
     def next(self):
         if self.order: return
         if self.data.close[0] == 0: return
-
-        # --------------------------------
-        # [매도 조건] 3일 < 5일 데드크로스
-        # --------------------------------
+        
+        # [매도] 3일 < 5일 데드크로스
         if self.position:
             if self.ma3[0] < self.ma5[0]:
                 self.order = self.sell(size=self.position.size)
             return
 
-        # --------------------------------
-        # [매수 조건] 변동성 돌파 (5% 상승 시 진입)
-        # --------------------------------
+        # [매수] 5% 돌파
         if not self.position:
             prev_close = self.data.close[-1]
             if prev_close == 0: return
 
-            # [핵심] 목표 진입가: 전일 종가 * 1.05
             target_price = prev_close * (1 + self.p.target_pct)
 
-            # 1. 고가가 목표가에 도달했는지 확인
+            # 1. 고가 도달 확인 (조건 A: 고가 5% 이상)
             if self.data.high[0] < target_price:
                 return
-
-            # 진입 가격 확정 (갭상승이면 시가, 아니면 목표가)
+            
             entry_price = max(self.data.open[0], target_price)
 
-            # 2. 거래대금 50억 이상
+            # 2. 거래대금 50억 (조건 B)
             trade_amount = self.data.close[0] * self.data.volume[0]
             if trade_amount < 5000000000: return
 
-            # 3. 정배열 (3일 > 5일)
+            # 3. 정배열 (조건 C)
             if self.ma3[0] <= self.ma5[0]: return
 
-            # 4. 볼린저밴드 상단 돌파
+            # 4. 밴드 상단 돌파 (조건 D)
             if self.data.close[0] <= self.bband.lines.top[0]: return
 
-            # --- [진입 실행] ---
+            # 진입 실행
             cash = self.broker.getcash()
-            bet_amount = 10000000  # 1,000만원
-
+            bet_amount = 10000000 
+            
             if cash >= bet_amount:
-                # 수량 계산 (목표가 기준)
                 size = math.floor(bet_amount / entry_price)
                 if size > 0:
                     self.order = self.buy(size=size)
                     self.manual_entry_price = entry_price
-
 
 # ==========================================
 # 실행 함수
@@ -167,10 +185,9 @@ class CustomDailyStrategy(bt.Strategy):
 def run_single_backtest(file_path, target_pct=0.05):
     try:
         df = pd.read_excel(file_path)
-        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
-                      '일자': 'Date'}
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume', '일자': 'Date'}
         df = df.rename(columns=rename_map)
-
+        
         for col in ['Close', 'Open', 'High', 'Low', 'Volume']:
             if col in df.columns:
                 df[col] = df[col].astype(float).abs()
@@ -180,33 +197,33 @@ def run_single_backtest(file_path, target_pct=0.05):
                 df['Date'] = pd.to_datetime(df['Date'])
             df = df.sort_values('Date').set_index('Date')
         else:
-            return None
+            return None 
 
         if len(df) < 60: return None
 
         cerebro = bt.Cerebro(runonce=False)
-        cerebro.broker.set_coc(True)
+        cerebro.broker.set_coc(True) 
 
         # 전략에 목표 상승률(target_pct) 전달
         cerebro.addstrategy(CustomDailyStrategy, target_pct=target_pct)
         cerebro.adddata(bt.feeds.PandasData(dataname=df))
-
-        cerebro.broker.setcash(100000000)
+        
+        cerebro.broker.setcash(100000000) 
         cerebro.broker.setcommission(commission=0.00015)
-
+        
         strats = cerebro.run()
-
+        
         trades_hist = strats[0].trades_history
-        if not trades_hist:
+        if not trades_hist: 
             return {'trades': 0, 'wins': 0, 'win_rate': 0, 'profit_rate': 0, 'total_profit': 0, 'history': []}
-
+        
         total_trades = len(trades_hist)
         wins = sum(1 for t in trades_hist if t['is_win'])
         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
-
+        
         total_profit = sum(t['pnl'] for t in trades_hist)
         total_profit_rate = sum(t['profit_pct'] for t in trades_hist)
-
+        
         return {
             'trades': total_trades,
             'wins': wins,
@@ -219,98 +236,101 @@ def run_single_backtest(file_path, target_pct=0.05):
     except Exception as e:
         return None
 
-
 # ==========================================
-# 1위 종목 상세 분석 및 차트 생성
+# 1위 종목 차트 생성 (매도 포인트 추가)
 # ==========================================
 def generate_best_stock_chart(file_path, stock_name, best_pct):
     try:
-        print(f"\n🎨 최고 수익 종목 [{stock_name}] 상세 분석 (설정: +{int(best_pct * 100)}% 돌파 진입)")
-
+        print(f"\n🎨 최고 수익 종목 [{stock_name}] 상세 분석 (설정: +{int(best_pct*100)}% 돌파 진입)")
+        
         df = pd.read_excel(file_path)
-        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
-                      '일자': 'Date'}
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume', '일자': 'Date'}
         df = df.rename(columns=rename_map)
-
+        
         for col in ['Close', 'Open', 'High', 'Low', 'Volume']:
             if col in df.columns:
                 df[col] = df[col].astype(float).abs()
-
+        
         if df['Date'].dtype == 'object':
             df['Date'] = pd.to_datetime(df['Date'])
         df = df.sort_values('Date').set_index('Date')
 
         cerebro = bt.Cerebro(runonce=False)
         cerebro.broker.set_coc(True)
-
+        
         cerebro.addstrategy(CustomDailyStrategy, target_pct=best_pct)
         cerebro.adddata(bt.feeds.PandasData(dataname=df))
         cerebro.broker.setcash(100000000)
         cerebro.broker.setcommission(commission=0.00015)
-
+        
         strats = cerebro.run()
         strat = strats[0]
-
+        
         print(f"\n📜 [{stock_name}] 매매 상세 일지")
         print("-" * 80)
-        print(f"{'청산일':<12} | {'구분':<4} | {'매수가':>10} | {'매도가':>10} | {'수익금':>12} | {'수익률':>7}")
+        print(f"{'청산일':<12} | {'구분':<4} | {'매수가':>10} | {'매도가':>10} | {'수익금':>12} | {'수익률':>7} | {'상태':<5}")
         print("-" * 80)
-
+        
         trades_hist = strat.trades_history
         total_pnl = 0
-
+        
         for t in trades_hist:
-            date_str = t['date'].strftime('%Y-%m-%d')
+            if isinstance(t['date'], str):
+                date_str = t['date']
+            else:
+                date_str = t['date'].strftime('%Y-%m-%d')
+                
             pnl = t['pnl']
             pct = t['profit_pct']
             mark = "🔺익절" if pnl > 0 else "🔹손절"
             entry = t['entry_price']
             exit_p = t['exit_price']
-
-            print(f"{date_str:<12} | {mark:<4} | {entry:10,.0f} | {exit_p:10,.0f} | {pnl:>11,.0f}원 | {pct:>6.2f}%")
+            status = t.get('status', 'Closed')
+            
+            print(f"{date_str:<12} | {mark:<4} | {entry:10,.0f} | {exit_p:10,.0f} | {pnl:>11,.0f}원 | {pct:>6.2f}% | {status:<5}")
             total_pnl += pnl
-
+            
         print("-" * 80)
         print(f"💰 총 누적 수익: {total_pnl:,.0f}원")
-
+        
         plot_filename = f'best_chart_{stock_name}.png'
         print(f"\n📸 차트 이미지를 저장 중입니다... ({plot_filename})")
-
+        
         figs = cerebro.plot(style='candlestick', barup='red', bardown='blue', volume=True)
         fig = figs[0][0]
-        ax = fig.get_axes()[0]
-
-        # 매수 포인트 텍스트 추가
+        ax = fig.get_axes()[0] 
+        
         data_dates = [bt.num2date(x).date() for x in strat.data.datetime.array]
         date_to_idx = {d: i for i, d in enumerate(data_dates)}
-
+        
+        # 매수 포인트 (파란색)
         for dt, price in strat.buy_points:
             if dt in date_to_idx:
                 idx = date_to_idx[dt]
-                ax.annotate(f'{price:,.0f}',
-                            xy=(idx, price),
-                            xytext=(0, 20),
-                            textcoords='offset points',
-                            arrowprops=dict(facecolor='blue', shrink=0.05, headwidth=5, width=1),
+                ax.annotate(f'{price:,.0f}', xy=(idx, price), xytext=(0, -20), 
+                            textcoords='offset points', arrowprops=dict(facecolor='blue', shrink=0.05, width=1, headwidth=5),
                             fontsize=8, color='blue', fontweight='bold', ha='center')
 
+        # 매도 포인트 (빨간색)
+        for dt, price in strat.sell_points:
+            if dt in date_to_idx:
+                idx = date_to_idx[dt]
+                ax.annotate(f'{price:,.0f}', xy=(idx, price), xytext=(0, 20), 
+                            textcoords='offset points', arrowprops=dict(facecolor='red', shrink=0.05, width=1, headwidth=5),
+                            fontsize=8, color='red', fontweight='bold', ha='center')
+        
         fig.savefig(plot_filename, dpi=150)
         print(f"✅ 차트 저장 완료! '{plot_filename}'")
-
+        
     except Exception as e:
         print(f"❌ 차트 생성 실패: {e}")
 
-
 def main():
-    print("=== 🎯 [일봉 전략] +5% 지점 정밀 타격 매매 (단일 조건) ===")
-    print("\n[📢 영웅문 조건검색식 설정 가이드]")
-    print("-" * 70)
-    print("1. [주가등락률] 전일종가 대비 금일고가 5% 이상 (진입 트리거)")
-    print("2. [거래대금] 5000 이상 (50억↑)")
-    print("3. [주가이동평균비교] 3이평 > 5이평")
-    print("4. [Bollinger Band] 종가가 상한선 이상")
-    print("-" * 70 + "\n")
+    # [수정] 전략 가이드를 맨 처음에 출력
+    print(CustomDailyStrategy.__doc__)
 
+    print("=== 🎯 [일봉 전략] +5% 지점 정밀 타격 매매 (보유분 포함) ===")
+    
     data_dir = "stock_data_51"
     if not os.path.exists(data_dir):
         print(f"🚨 '{data_dir}' 폴더가 없습니다!")
@@ -318,54 +338,50 @@ def main():
 
     files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".xlsx")]
     print(f"📂 분석 대상: {len(files)}개 종목\n")
-
-    target_pct = 0.05  # 5% 고정
-
+    
+    target_pct = 0.05
+    
     print(f"{'종목명':<15} | {'게임수':>5} | {'승률':>6} | {'총 수익률':>10} | {'총 수익금':>12}")
     print("-" * 80)
-
+    
     total_stats = {'trades': 0, 'profit': 0, 'wins': 0}
     best_stock = {'profit': -99999999999, 'name': '', 'file': ''}
-
+    
     results = []
 
     for file_path in files:
         stock_name = os.path.basename(file_path).split('_')[-1].replace('.xlsx', '')
-
+        
         res = run_single_backtest(file_path, target_pct=target_pct)
-
+        
         if res and res['trades'] > 0:
             results.append((stock_name, res))
-
+            
             total_stats['trades'] += res['trades']
             total_stats['profit'] += res['total_profit']
             total_stats['wins'] += res['wins']
-
-            # 출력용 포맷팅
+            
             mark = "🔴" if res['total_profit'] > 0 else "🔵"
-            print(
-                f"{stock_name:<15} | {res['trades']:5d}회 | {res['win_rate']:5.1f}% | {res['profit_rate']:9.2f}% | {res['total_profit']:11,.0f}원 {mark}")
-
-            # 최고 수익 종목 갱신
+            print(f"{stock_name:<15} | {res['trades']:5d}회 | {res['win_rate']:5.1f}% | {res['profit_rate']:9.2f}% | {res['total_profit']:11,.0f}원 {mark}")
+            
             if res['total_profit'] > best_stock['profit']:
                 best_stock = {'profit': res['total_profit'], 'name': stock_name, 'file': file_path}
 
     print("-" * 80)
-
+    
     if results:
         avg_win_rate = (total_stats['wins'] / total_stats['trades'] * 100) if total_stats['trades'] > 0 else 0
-
+        
         print(f"\n📊 [전체 포트폴리오 요약]")
         print(f"   - 총 매매 횟수 : {total_stats['trades']}회")
         print(f"   - 전체 승률    : {avg_win_rate:.2f}%")
         print(f"   - 총 누적 수익 : {total_stats['profit']:,.0f}원")
-
+        
         if best_stock['name']:
             print(f"\n🏆 최고 수익 종목: [{best_stock['name']}] (+{best_stock['profit']:,.0f}원)")
             generate_best_stock_chart(best_stock['file'], best_stock['name'], target_pct)
     else:
         print("\n❌ 조건에 맞는 매매가 발생하지 않았습니다.")
-
 
 if __name__ == "__main__":
     main()
