@@ -24,25 +24,25 @@ class CustomDailyStrategy(bt.Strategy):
     ================================================================================
     1. 매수 진입 조건 (모두 만족 시)
        A. [변동성 돌파]
-          - '전일 종가 + 5% 가격' OR '볼린저밴드 상단 가격' 중 **더 높은 가격**을 돌파할 때 진입.
+          - '전일 종가 + 4% 가격' OR '볼린저밴드 상단 가격' 중 **더 높은 가격**을 돌파할 때 진입.
           - 갭상승으로 이미 해당 가격을 넘어서 시작하면 시가에 진입.
        B. [유동성] 당일 거래대금 50억 원 이상.
-       C. [추세] 3일 이동평균선 > 5일 이동평균선 (정배열).
-       D. [수렴] 전일(D-1) 기준 볼린저밴드(10, 2) 밴드폭이 10% 미만 (에너지 응축 후 발산 포착).
+       C. [추세] 1봉전(전일) 기준 3일 이동평균선 > 5일 이동평균선 (사전 정배열 상태 확인).
+       D. [수렴] 전일(D-1) 기준 볼린저밴드(10, 2) 밴드폭이 6% 미만 (에너지 응축 후 발산 포착).
 
     2. 매도 청산 조건
-       - 3일 이동평균선이 5일 이동평균선을 하향 이탈(데드크로스)하는 **정확한 교차 가격**을 계산.
-       - 장중 해당 가격을 건드리면 즉시 시장가/지정가 청산.
+       - 3일선과 5일선이 역배열(데드크로스)되면 무조건 매도.
+       - 매도가격: 장중 데드크로스가 발생하는 **정확한 교차 가격**을 계산하여 즉시 청산.
     ================================================================================
     """
     params = (
-        ('target_pct', 0.05),  # 5%
+        ('target_pct', 0.04),  # 4% (수정됨)
         ('ma_fast', 3),  # 3일
         ('ma_slow', 5),  # 5일
         ('boll_period', 10),  # 볼린저밴드 기간
         ('boll_dev', 2.0),  # 볼린저밴드 승수
-        ('bandwidth_limit', 0.10),  # 밴드폭 제한 (10% 미만)
-        ('debug', True),  # 디버그 모드 (True: 상세 로그 출력)
+        ('bandwidth_limit', 0.06),  # 밴드폭 제한 (6% 미만으로 수정됨)
+        ('debug', False),  # 디버그 모드 (False: 계산과정 숨김, 결과만 출력)
     )
 
     def __init__(self):
@@ -204,7 +204,7 @@ class CustomDailyStrategy(bt.Strategy):
             # 밴드폭 계산 (전일)
             bandwidth = (top_prev - bot_prev) / mid_prev
 
-            # 전일 밴드폭이 설정값(10%) 이상이면 진입 금지
+            # 전일 밴드폭이 설정값(6%) 이상이면 진입 금지
             if bandwidth >= self.p.bandwidth_limit:
                 # self.log(f'Skip: Bandwidth {bandwidth:.2%} >= Limit {self.p.bandwidth_limit:.2%}') # 너무 자주 찍히면 주석 처리
                 return
@@ -222,7 +222,7 @@ class CustomDailyStrategy(bt.Strategy):
             except Exception:
                 pass
 
-                # [가격 B] 전일 종가 대비 5% 상승 가격
+                # [가격 B] 전일 종가 대비 4% 상승 가격 (수정됨)
             price_b = prev_close * (1 + self.p.target_pct)
 
             # [최종 진입 트리거]
@@ -234,9 +234,10 @@ class CustomDailyStrategy(bt.Strategy):
                 # self.log(f'Skip: Trade Amount {trade_amount:,.0f} < 5B')
                 return
 
-            # [조건 C] 정배열
-            if self.ma3[0] <= self.ma5[0]:
-                # self.log(f'Skip: MA3({self.ma3[0]:.0f}) <= MA5({self.ma5[0]:.0f})')
+            # [조건 C] 정배열 (수정됨: 전일 기준)
+            # [-1] 사용: 어제 종가 기준으로 이미 정배열이어야 함
+            if self.ma3[-1] <= self.ma5[-1]:
+                # self.log(f'Skip: Prev MA3({self.ma3[-1]:.0f}) <= Prev MA5({self.ma5[-1]:.0f})')
                 return
 
             # 고가가 트리거 가격보다 낮으면 진입 불가
@@ -264,7 +265,7 @@ class CustomDailyStrategy(bt.Strategy):
 # ==========================================
 # 실행 함수
 # ==========================================
-def run_single_backtest(file_path, target_pct=0.05):
+def run_single_backtest(file_path, target_pct=0.04):
     try:
         df = pd.read_excel(file_path)
         rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
@@ -362,7 +363,8 @@ def generate_best_stock_chart(file_path, stock_name, best_pct):
         cerebro = bt.Cerebro(runonce=False)
         cerebro.broker.set_coc(True)
 
-        cerebro.addstrategy(CustomDailyStrategy, target_pct=best_pct, debug=True)
+        # 디버그 모드 False로 변경
+        cerebro.addstrategy(CustomDailyStrategy, target_pct=best_pct, debug=False)
         cerebro.adddata(bt.feeds.PandasData(dataname=df))
         cerebro.broker.setcash(100000000)
         cerebro.broker.setcommission(commission=0.00015)
@@ -445,7 +447,7 @@ def main():
     # [수정] 전략 가이드를 맨 처음에 출력
     print(CustomDailyStrategy.__doc__)
 
-    print("=== 🎯 [일봉 전략] +5% 지점 정밀 타격 매매 (보유분 포함) ===")
+    print("=== 🎯 [일봉 전략] +4% 지점 정밀 타격 매매 (보유분 포함) ===")
 
     data_dir = "stock_data_51"
     if not os.path.exists(data_dir):
@@ -455,7 +457,8 @@ def main():
     files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".xlsx")]
     print(f"📂 분석 대상: {len(files)}개 종목\n")
 
-    target_pct = 0.05
+    # 목표 수익률 4%로 변경
+    target_pct = 0.04
 
     print(f"{'종목명':<15} | {'게임수':>5} | {'승률':>6} | {'총 수익률':>10} | {'총 수익금':>12}")
     print("-" * 80)
