@@ -1,0 +1,534 @@
+# ==========================================
+# 📊 [최종 시나리오별 성과 비교]
+# ================================================================================
+# 구간 (Bandwidth)  |     체결 종목수 |     총 매매횟수 |      전체 승률 |              총 수익금
+# --------------------------------------------------------------------------------
+# 6% 미만           |         40개 |        207회 |      35.3% |        -15,495,624원
+# 6% ~ 8%         |         41개 |        251회 |      37.8% |         36,766,145원
+# 8% ~ 10%        |         41개 |        238회 |      36.6% |        -10,354,036원
+# 10% ~ 12%       |         45개 |        242회 |      35.1% |         -5,496,967원
+# 12% ~ 14%       |         41개 |        237회 |      44.3% |         44,416,428원
+# 14% 이상          |         49개 |        934회 |      40.5% |         30,546,684원
+# ================================================================================
+import matplotlib
+
+# 화면 표시 없이 내부에서 이미지 생성 (충돌 방지)
+matplotlib.use('Agg')
+
+import backtrader as bt
+import pandas as pd
+import os
+import math
+from datetime import time, timedelta
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+
+# ==========================================
+# [전략] 일봉 급등주 돌파 + 밴드폭 구간 필터 + 정밀 매도
+# ==========================================
+class CustomDailyStrategy(bt.Strategy):
+    """
+    [상세 전략 설명]
+    ================================================================================
+    1. 매수 진입 조건 (모두 만족 시)
+       A. [변동성 돌파]
+          - '전일 종가 + 5% 가격'을 돌파할 때 진입.
+          - 갭상승으로 이미 해당 가격을 넘어서 시작하면 시가에 진입.
+       B. [유동성] 당일 거래대금 50억 원 이상.
+       C. [추세] 1봉전(전일) 및 0봉전(당일) 기준 3일 이동평균선 > 5일 이동평균선 (지속 정배열 확인).
+       D. [수렴] 전일(D-1) 기준 볼린저밴드(10, 2) 밴드폭이 설정된 구간(Min ~ Max) 내에 위치.
+
+    2. 매도 청산 조건
+       - 3일선과 5일선이 역배열(데드크로스)되면 무조건 매도.
+       - Case A (이미 역배열): 전일 종가 기준 이미 역배열이면 시가에 즉시 청산.
+       - Case B (장중 역배열): 장중 데드크로스가 발생하는 **정확한 교차 가격**을 계산하여 즉시 청산.
+    ================================================================================
+    """
+    params = (
+        ('target_pct', 0.05),  # 5%
+        ('ma_fast', 3),  # 3일
+        ('ma_slow', 5),  # 5일
+        ('boll_period', 10),  # 볼린저밴드 기간
+        ('boll_dev', 2.0),  # 볼린저밴드 승수
+        ('bandwidth_min', 0.06),  # 밴드폭 최소값 (기본값)
+        ('bandwidth_max', 0.08),  # 밴드폭 최대값 (기본값)
+        ('debug', False),  # 디버그 모드
+    )
+
+    def __init__(self):
+        self.ma3 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_fast)
+        self.ma5 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_slow)
+
+        # 볼린저밴드 지표
+        typical_price = (self.data.high + self.data.low + self.data.close) / 3.0
+        self.bband = bt.indicators.BollingerBands(typical_price, period=self.p.boll_period, devfactor=self.p.boll_dev)
+
+        self.order = None
+        self.trades_history = []
+
+        # 차트 표기를 위한 매수/매도 지점 저장소 (날짜, 가격)
+        self.buy_points = []
+        self.sell_points = []
+
+        # 수익률 계산을 위한 매수 수량 및 날짜 저장
+        self.buy_size = 0
+        self.entry_date = None
+
+    def log(self, txt, dt=None):
+        """디버깅용 로그 출력 함수"""
+        if self.p.debug:
+            dt = dt or self.data.datetime.date(0)
+            print(f'[{dt.isoformat()}] {txt}')
+
+    def notify_order(self, order):
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status in [order.Completed]:
+            dt = bt.num2date(order.executed.dt).date()
+            price = order.executed.price
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXECUTED, Price: {price:,.2f}, Cost: {order.executed.value:,.2f}, Comm: {order.executed.comm:,.2f}')
+                self.buy_points.append((dt, price))
+                self.buy_size = order.executed.size  # 수량 저장
+                self.entry_date = dt  # 매수일 저장
+            elif order.issell():
+                self.log(
+                    f'SELL EXECUTED, Price: {price:,.2f}, Cost: {order.executed.value:,.2f}, Comm: {order.executed.comm:,.2f}')
+                self.sell_points.append((dt, price))
+
+            self.bar_executed = len(self)
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('Order Canceled/Margin/Rejected')
+
+        # 주문 처리 완료 후 초기화
+        self.order = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed: return
+
+        # Backtrader 내부 PnL 사용
+        pnl = trade.pnl
+
+        entry_price = trade.price  # 진입 가격 (평균)
+
+        # 청산 가격 추적
+        if self.sell_points:
+            exit_price = self.sell_points[-1][1]
+        else:
+            exit_price = entry_price + (pnl / self.buy_size) if self.buy_size != 0 else entry_price
+
+        profit_pct = 0
+        if entry_price > 0:
+            profit_pct = ((exit_price - entry_price) / entry_price) * 100
+
+        open_date = bt.num2date(trade.dtopen).date()
+        close_date = bt.num2date(trade.dtclose).date()
+
+        self.log(f'OPERATION PROFIT, GROSS {pnl:,.2f}, NET {pnl:,.2f}')
+
+        self.trades_history.append({
+            'open_date': open_date,
+            'date': close_date,
+            'profit_pct': profit_pct,
+            'pnl': pnl,
+            'is_win': pnl > 0,
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'status': 'Closed'  # 청산 완료
+        })
+
+        # 청산 완료 시 매수일 초기화
+        self.entry_date = None
+
+    def stop(self):
+        if self.position:
+            current_price = self.data.close[0]
+            entry_price = self.position.price
+
+            # 저장된 매수일 사용 (없으면 Unknown)
+            open_date = self.entry_date if self.entry_date else "Unknown"
+
+            pnl = 0
+            pct = 0
+            if entry_price > 0:
+                pnl = (current_price - entry_price) * abs(self.position.size)
+                pct = ((current_price - entry_price) / entry_price) * 100
+
+            self.trades_history.append({
+                'open_date': open_date,
+                'date': self.data.datetime.date(0),
+                'profit_pct': pct,
+                'pnl': pnl,
+                'is_win': pnl > 0,
+                'entry_price': entry_price,
+                'exit_price': current_price,
+                'status': 'Holding'  # 보유 중
+            })
+
+    def next(self):
+        # 미체결 주문(좀비 주문)이 남아있다면 즉시 취소하여 오류 방지
+        if self.order:
+            self.cancel(self.order)
+            return
+
+        if self.data.close[0] == 0: return
+
+        # ----------------------------------------
+        # [매도 로직] 3일선-5일선 역배열 매도
+        # ----------------------------------------
+        if self.position:
+            # 1. [안전장치] 전일 종가 기준 이미 역배열이면 즉시 시장가 매도
+            if self.ma3[-1] < self.ma5[-1]:
+                self.log(f'SELL Signal (Already Crossed): Prev MA3 < Prev MA5. Market Sell.')
+                self.order = self.sell(size=self.position.size, exectype=bt.Order.Market)
+                return
+
+            # 2. [정밀 매도] 장중 데드크로스 포착
+            try:
+                c1 = self.data.close[-1]
+                c2 = self.data.close[-2]
+                c3 = self.data.close[-3]
+                c4 = self.data.close[-4]
+
+                # 교차 가격 역산
+                cross_price = 1.5 * (c3 + c4) - (c1 + c2)
+
+                # 오늘 저가가 교차 가격 이하로 떨어지면 데드크로스 발생
+                if self.data.low[0] <= cross_price:
+                    if self.data.open[0] < cross_price:
+                        # 갭하락으로 시가가 교차가보다 낮으면 시가 매도 (시장가 처리)
+                        exec_price = self.data.open[0]
+                        self.log(f'SELL Signal (Gap Down): Open {self.data.open[0]} < Cross {cross_price:.2f}')
+                        self.order = self.sell(size=self.position.size, exectype=bt.Order.Market)
+                    else:
+                        # 장중 터치 시 해당 가격 매도
+                        exec_price = cross_price
+                        self.log(f'SELL Signal (Touch): Cross Price {cross_price:.2f} touched')
+                        self.order = self.sell(size=self.position.size, price=exec_price, exectype=bt.Order.Limit)
+                    return
+            except IndexError:
+                pass
+            return
+
+        # ----------------------------------------
+        # [매수 로직]
+        # ----------------------------------------
+        if not self.position:
+            prev_close = self.data.close[-1]
+            if prev_close <= 0: return
+
+            # [조건 D] 볼린저 밴드 폭 확인 (전일 기준)
+            top_prev = self.bband.lines.top[-1]
+            bot_prev = self.bband.lines.bot[-1]
+            mid_prev = self.bband.lines.mid[-1]
+
+            if mid_prev <= 0: return
+
+            # 밴드폭 계산 (전일)
+            bandwidth = (top_prev - bot_prev) / mid_prev
+
+            # [수정] 밴드폭 범위 조건 (Min <= Bandwidth < Max)
+            if not (self.p.bandwidth_min <= bandwidth < self.p.bandwidth_max):
+                return
+
+            # [가격] 전일 종가 대비 5% 상승 가격
+            target_price = prev_close * (1 + self.p.target_pct)
+
+            # [최종 진입 트리거]
+            entry_trigger_price = target_price
+
+            # [조건 B] 거래대금 50억
+            trade_amount = self.data.close[0] * self.data.volume[0]
+            if trade_amount < 5000000000:
+                return
+
+            # [조건 C] 정배열 (전일 및 당일 기준)
+            if self.ma3[-1] <= self.ma5[-1] or self.ma3[0] <= self.ma5[0]:
+                return
+
+            # 고가가 트리거 가격보다 낮으면 진입 불가
+            if self.data.high[0] < entry_trigger_price:
+                return
+
+            # 실제 체결 가격 설정
+            actual_buy_price = max(self.data.open[0], entry_trigger_price)
+
+            # [중요] 비정상적 가격(0원, 동전주) 방지
+            if actual_buy_price < 100: return
+
+            # 진입 실행
+            cash = self.broker.getcash()
+            bet_amount = 10000000
+
+            if cash >= bet_amount:
+                size = math.floor(bet_amount / actual_buy_price)
+                if size > 0:
+                    self.log(f'BUY CREATE: Price {actual_buy_price:.2f} (Trigger: {entry_trigger_price:.2f})')
+                    self.order = self.buy(size=size, price=actual_buy_price, exectype=bt.Order.Limit,
+                                          valid=timedelta(days=1))
+
+
+# ==========================================
+# 실행 함수 (단일 구간)
+# ==========================================
+def run_single_backtest(file_path, target_pct, bandwidth_min, bandwidth_max):
+    try:
+        df = pd.read_excel(file_path)
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
+                      '일자': 'Date'}
+        df = df.rename(columns=rename_map)
+
+        cols_to_numeric = ['Close', 'Open', 'High', 'Low', 'Volume']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '')
+                df[col] = pd.to_numeric(df[col], errors='coerce').abs()
+
+        df = df.dropna(subset=[c for c in cols_to_numeric if c in df.columns])
+
+        if 'Date' in df.columns:
+            if df['Date'].dtype == 'object':
+                df['Date'] = pd.to_datetime(df['Date'])
+            df = df.sort_values('Date').set_index('Date')
+        else:
+            return None
+
+        if len(df) < 30:
+            return None
+
+        cerebro = bt.Cerebro(runonce=False)
+        cerebro.broker.set_coc(True)
+
+        # [수정] 밴드폭 범위 파라미터 전달
+        cerebro.addstrategy(CustomDailyStrategy, target_pct=target_pct,
+                            bandwidth_min=bandwidth_min, bandwidth_max=bandwidth_max)
+
+        cerebro.adddata(bt.feeds.PandasData(dataname=df))
+        cerebro.broker.setcash(100000000)
+        cerebro.broker.setcommission(commission=0.00015)
+
+        strats = cerebro.run()
+
+        trades_hist = strats[0].trades_history
+        if not trades_hist:
+            return {'trades': 0, 'wins': 0, 'win_rate': 0, 'profit_rate': 0, 'total_profit': 0, 'history': []}
+
+        total_trades = len(trades_hist)
+        wins = sum(1 for t in trades_hist if t['is_win'])
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+        total_profit = sum(t['pnl'] for t in trades_hist)
+        total_profit_rate = sum(t['profit_pct'] for t in trades_hist)
+
+        return {
+            'trades': total_trades,
+            'wins': wins,
+            'win_rate': win_rate,
+            'profit_rate': total_profit_rate,
+            'total_profit': total_profit,
+            'history': trades_hist
+        }
+
+    except Exception as e:
+        return None
+
+
+# ==========================================
+# 종목 차트 및 상세 분석 생성
+# ==========================================
+def generate_stock_chart(file_path, stock_name, target_pct, bandwidth_min, bandwidth_max, title_prefix="🎨 종목"):
+    try:
+        print(f"\n{title_prefix} [{stock_name}] 상세 분석 (BW: {int(bandwidth_min * 100)}~{int(bandwidth_max * 100)}%)")
+
+        df = pd.read_excel(file_path)
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
+                      '일자': 'Date'}
+        df = df.rename(columns=rename_map)
+
+        cols_to_numeric = ['Close', 'Open', 'High', 'Low', 'Volume']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '')
+                df[col] = pd.to_numeric(df[col], errors='coerce').abs()
+
+        df = df.dropna(subset=[c for c in cols_to_numeric if c in df.columns])
+
+        if df['Date'].dtype == 'object':
+            df['Date'] = pd.to_datetime(df['Date'])
+        df = df.sort_values('Date').set_index('Date')
+
+        cerebro = bt.Cerebro(runonce=False)
+        cerebro.broker.set_coc(True)
+
+        cerebro.addstrategy(CustomDailyStrategy, target_pct=target_pct,
+                            bandwidth_min=bandwidth_min, bandwidth_max=bandwidth_max, debug=False)
+        cerebro.adddata(bt.feeds.PandasData(dataname=df))
+        cerebro.broker.setcash(100000000)
+        cerebro.broker.setcommission(commission=0.00015)
+
+        strats = cerebro.run()
+        strat = strats[0]
+
+        print(f"\n📜 [{stock_name}] 매매 상세 일지")
+        print("-" * 92)
+        print(
+            f"{'매수일':<12} | {'매도일':<12} | {'구분':<4} | {'매수가':>10} | {'매도가':>10} | {'수익금':>12} | {'수익률':>7} | {'상태':<5}")
+        print("-" * 92)
+
+        trades_hist = strat.trades_history
+        total_pnl = 0
+
+        for t in trades_hist:
+            if isinstance(t['date'], str):
+                close_date_str = t['date']
+            else:
+                close_date_str = t['date'].strftime('%Y-%m-%d')
+
+            if isinstance(t.get('open_date'), str):
+                open_date_str = t.get('open_date', '-')
+            elif t.get('open_date'):
+                open_date_str = t['open_date'].strftime('%Y-%m-%d')
+            else:
+                open_date_str = "-"
+
+            pnl = t['pnl']
+            pct = t['profit_pct']
+            mark = "🔺익절" if pnl > 0 else "🔹손절"
+            entry = t['entry_price']
+            exit_p = t['exit_price']
+            status = t.get('status', 'Closed')
+
+            print(
+                f"{open_date_str:<12} | {close_date_str:<12} | {mark:<4} | {entry:10,.0f} | {exit_p:10,.0f} | {pnl:>11,.0f}원 | {pct:>6.2f}% | {status:<5}")
+            total_pnl += pnl
+
+        print("-" * 92)
+        print(f"💰 총 누적 수익: {total_pnl:,.0f}원")
+
+        plot_filename = f'chart_{stock_name}_{int(bandwidth_min * 100)}_{int(bandwidth_max * 100)}.png'
+        print(f"\n📸 차트 이미지를 저장 중입니다... ({plot_filename})")
+
+        figs = cerebro.plot(style='candlestick', barup='red', bardown='blue', volume=True)
+        fig = figs[0][0]
+        ax = fig.get_axes()[0]
+
+        data_dates = [bt.num2date(x).date() for x in strat.data.datetime.array]
+        date_to_idx = {d: i for i, d in enumerate(data_dates)}
+
+        for dt, price in strat.buy_points:
+            if dt in date_to_idx:
+                idx = date_to_idx[dt]
+                ax.annotate(f'{price:,.0f}', xy=(idx, price), xytext=(0, -20),
+                            textcoords='offset points',
+                            arrowprops=dict(facecolor='blue', shrink=0.05, width=1, headwidth=5),
+                            fontsize=8, color='blue', fontweight='bold', ha='center')
+
+        for dt, price in strat.sell_points:
+            if dt in date_to_idx:
+                idx = date_to_idx[dt]
+                ax.annotate(f'{price:,.0f}', xy=(idx, price), xytext=(0, 20),
+                            textcoords='offset points',
+                            arrowprops=dict(facecolor='red', shrink=0.05, width=1, headwidth=5),
+                            fontsize=8, color='red', fontweight='bold', ha='center')
+
+        fig.savefig(plot_filename, dpi=150)
+        print(f"✅ 차트 저장 완료! '{plot_filename}'")
+
+    except Exception as e:
+        print(f"❌ 차트 생성 실패: {e}")
+
+
+def main():
+    print(CustomDailyStrategy.__doc__)
+    print("=== 🎯 [일봉 전략] 밴드폭 구간별 수익률 비교 분석 (보유분 포함) ===")
+
+    data_dir = "stock_data_51"
+    if not os.path.exists(data_dir):
+        print(f"🚨 '{data_dir}' 폴더가 없습니다!")
+        return
+
+    files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".xlsx")]
+    print(f"📂 분석 대상: {len(files)}개 종목\n")
+
+    target_pct = 0.05
+
+    # 6가지 밴드폭 시나리오 정의 (수정됨)
+    scenarios = [
+        {'label': '6% 미만', 'min': 0.0, 'max': 0.06},
+        {'label': '6% ~ 8%', 'min': 0.06, 'max': 0.08},
+        {'label': '8% ~ 10%', 'min': 0.08, 'max': 0.10},
+        {'label': '10% ~ 12%', 'min': 0.10, 'max': 0.12},
+        {'label': '12% ~ 14%', 'min': 0.12, 'max': 0.14},
+        {'label': '14% 이상', 'min': 0.14, 'max': 100.0},
+    ]
+
+    scenario_results = []
+
+    # 각 시나리오별 실행
+    for sc in scenarios:
+        print(f"\n🚀 시나리오 실행: 밴드폭 {sc['label']}")
+        print(f"{'종목명':<15} | {'게임수':>5} | {'승률':>6} | {'총 수익률':>10} | {'총 수익금':>12}")
+        print("-" * 80)
+
+        total_stats = {'trades': 0, 'profit': 0, 'wins': 0}
+        best_stock = {'profit': -99999999999, 'name': '', 'file': ''}
+        worst_stock = {'profit': 99999999999, 'name': '', 'file': ''}
+
+        active_stocks = 0
+
+        for file_path in files:
+            stock_name = os.path.basename(file_path).split('_')[-1].replace('.xlsx', '')
+
+            # 파라미터 전달: min, max 대역폭
+            res = run_single_backtest(file_path, target_pct, sc['min'], sc['max'])
+
+            if res and res['trades'] > 0:
+                active_stocks += 1
+                total_stats['trades'] += res['trades']
+                total_stats['profit'] += res['total_profit']
+                total_stats['wins'] += res['wins']
+
+                mark = "🔴" if res['total_profit'] > 0 else "🔵"
+                print(
+                    f"{stock_name:<15} | {res['trades']:5d}회 | {res['win_rate']:5.1f}% | {res['profit_rate']:9.2f}% | {res['total_profit']:11,.0f}원 {mark}")
+
+                if res['total_profit'] > best_stock['profit']:
+                    best_stock = {'profit': res['total_profit'], 'name': stock_name, 'file': file_path}
+                if res['total_profit'] < worst_stock['profit']:
+                    worst_stock = {'profit': res['total_profit'], 'name': stock_name, 'file': file_path}
+
+        print("-" * 80)
+        avg_win_rate = (total_stats['wins'] / total_stats['trades'] * 100) if total_stats['trades'] > 0 else 0
+
+        # 시나리오 결과 저장
+        scenario_results.append({
+            'label': sc['label'],
+            'trades': total_stats['trades'],
+            'win_rate': avg_win_rate,
+            'total_profit': total_stats['profit'],
+            'active_stocks': active_stocks,
+            'best_stock': best_stock,
+            'worst_stock': worst_stock
+        })
+
+    # 최종 비교 리포트 출력
+    print("\n\n📊 [최종 시나리오별 성과 비교]")
+    print("=" * 80)
+    print(f"{'구간 (Bandwidth)':<15} | {'체결 종목수':>10} | {'총 매매횟수':>10} | {'전체 승률':>10} | {'총 수익금':>18}")
+    print("-" * 80)
+
+    for res in scenario_results:
+        print(
+            f"{res['label']:<15} | {res['active_stocks']:10d}개 | {res['trades']:10d}회 | {res['win_rate']:9.1f}% | {res['total_profit']:18,.0f}원")
+    print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
