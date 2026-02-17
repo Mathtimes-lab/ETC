@@ -1,0 +1,374 @@
+# ==========================================
+# 📊 [분봉 전략] 밴드폭 구간별 성과 분석
+# ==========================================
+import matplotlib
+
+# 화면 표시 없이 내부에서 이미지 생성 (충돌 방지)
+matplotlib.use('Agg')
+
+import backtrader as bt
+import pandas as pd
+import os
+import math
+from datetime import time, timedelta
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+
+# ==========================================
+# [전략] 분봉 급등주 돌파 + 밴드폭(수렴) 필터 + 정밀 매도
+# ==========================================
+class CustomMinuteStrategy(bt.Strategy):
+    """
+    [상세 전략 설명: 분봉 기준]
+    ================================================================================
+    1. 매수 진입 조건 (모두 만족 시)
+       A. [변동성 돌파]
+          - (분봉) 현재봉 종가가 시가 대비 2% 이상 상승 (장대양봉)
+       B. [유동성]
+          - (분봉) 현재봉 거래대금 2억 원 이상
+       C. [추세]
+          - (분봉) 1봉전과 현재봉 모두 3분선 > 5분선 정배열 상태
+       D. [수렴]
+          - (분봉) 전봉(1봉전) 기준 볼린저밴드(10, 2) 밴드폭이 설정된 구간(Min ~ Max) 내 위치
+
+    2. 매도 청산 조건 - 장중 데드크로스 즉시 청산 가정
+       - 분봉 기준 3분선과 5분선이 만나는 가격(Cross Price) 계산.
+       - 오늘 저가(Low)가 이 가격 이하라면 장중 데드크로스 발생으로 간주.
+       - 매도가격: 교차가격(Cross Price)으로 설정 (갭하락 시 시가 매도)
+    ================================================================================
+    """
+    params = (
+        ('target_rise_pct', 0.02),  # 2% 상승 (시가 대비 종가)
+        ('ma_fast', 3),  # 3분선
+        ('ma_slow', 5),  # 5분선
+        ('boll_period', 10),  # 볼린저밴드 기간
+        ('boll_dev', 2.0),  # 볼린저밴드 승수
+        ('bandwidth_min', 0.0),    # 밴드폭 최소값 (기본값)
+        ('bandwidth_max', 0.02),   # 밴드폭 최대값 (기본값)
+        ('min_volume_amt', 200000000), # 거래대금 2억 원
+        ('debug', False),
+    )
+
+    def __init__(self):
+        self.ma3 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_fast)
+        self.ma5 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_slow)
+
+        # 볼린저밴드 지표 (분봉 기준)
+        typical_price = (self.data.high + self.data.low + self.data.close) / 3.0
+        self.bband = bt.indicators.BollingerBands(typical_price, period=self.p.boll_period, devfactor=self.p.boll_dev)
+
+        # 수동 포지션 관리용 변수
+        self.my_position = None
+        self.trades_history = []
+        
+        self.buy_points = []
+        self.sell_points = []
+
+        self.peak_price = 0
+
+    def log(self, txt, dt=None):
+        if self.p.debug:
+            dt = dt or self.data.datetime.datetime(0)
+            print(f'[{dt}] {txt}')
+
+    def next(self):
+        # 데이터 유효성 검사
+        if len(self.data) < max(self.p.ma_slow + 2, self.p.boll_period + 2):
+            return
+        
+        current_dt = self.data.datetime.datetime(0)
+        
+        # ----------------------------------------------------------------------
+        # [1] 보유 중일 때: 매도(청산) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position:
+            # 최고가 갱신
+            if self.data.high[0] > self.peak_price:
+                self.peak_price = self.data.high[0]
+
+            # 데드크로스 가격 계산 (분봉 기준)
+            # MA3(0) < MA5(0)가 되는 C(0) 찾기
+            # 식: C0 = 1.5 * (C-3 + C-4) - (C-1 + C-2)
+            c_1 = self.data.close[-1]
+            c_2 = self.data.close[-2]
+            c_3 = self.data.close[-3]
+            c_4 = self.data.close[-4]
+            
+            cross_price_raw = 1.5 * (c_3 + c_4) - (c_1 + c_2)
+            cross_price = round(cross_price_raw)
+
+            sell_signal = False
+            sell_price = 0
+            sell_reason = ""
+
+            # 조건 1: 이전 봉에서 이미 데드크로스 상태 (안전장치)
+            if self.ma3[-1] < self.ma5[-1]:
+                sell_signal = True
+                sell_price = self.data.open[0]
+                sell_reason = "전봉 데드크로스 상태 지속"
+
+            # 조건 2: 장중 데드크로스 발생 (저가가 교차 가격 이하)
+            elif self.data.low[0] <= cross_price:
+                sell_signal = True
+                # 갭하락(시가 < 교차가)이면 시가 매도, 아니면 교차가 매도
+                if self.data.open[0] < cross_price:
+                    sell_price = self.data.open[0]
+                    sell_reason = f"갭하락 데드크로스 (교차값: {cross_price})"
+                else:
+                    sell_price = cross_price
+                    sell_reason = f"장중 데드크로스 터치 (교차값: {cross_price})"
+
+            if sell_signal:
+                # 거래 기록 및 포지션 정리
+                entry_price = self.my_position['price']
+                buy_size = self.my_position['size']
+                buy_reason = self.my_position['reason']
+                open_date = self.my_position['date']
+                
+                pnl = (sell_price - entry_price) * buy_size
+                profit_pct = ((sell_price - entry_price) / entry_price) * 100
+                max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+
+                self.trades_history.append({
+                    'open_date': open_date,
+                    'date': current_dt,
+                    'profit_pct': profit_pct,
+                    'max_profit_pct': max_profit_pct,
+                    'pnl': pnl,
+                    'is_win': pnl > 0,
+                    'entry_price': entry_price,
+                    'exit_price': sell_price,
+                    'status': 'Closed',
+                    'buy_reason': buy_reason,
+                    'sell_reason': sell_reason
+                })
+                
+                self.sell_points.append((current_dt, sell_price))
+                self.my_position = None
+                self.peak_price = 0
+                return
+
+        # ----------------------------------------------------------------------
+        # [2] 미보유 중일 때: 매수(진입) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position is None:
+            # A. [변동성 돌파] 시가 대비 종가 2% 이상 상승
+            if self.data.close[0] < self.data.open[0] * (1 + self.p.target_rise_pct):
+                return
+
+            # B. [유동성] 거래대금 2억 이상
+            trade_amount = self.data.close[0] * self.data.volume[0]
+            if trade_amount < self.p.min_volume_amt:
+                return
+
+            # C. [추세] 1봉전, 현재봉 모두 정배열 (MA3 > MA5)
+            if not (self.ma3[-1] > self.ma5[-1] and self.ma3[0] > self.ma5[0]):
+                return
+
+            # D. [수렴] 전봉(1봉전) 기준 밴드폭 < 2% (또는 설정값)
+            # 밴드폭 계산: (Top - Bot) / Mid
+            top_prev = self.bband.lines.top[-1]
+            bot_prev = self.bband.lines.bot[-1]
+            mid_prev = self.bband.lines.mid[-1]
+            
+            if mid_prev == 0: return
+            bandwidth = (top_prev - bot_prev) / mid_prev
+
+            # 밴드폭 조건 체크 (Min <= Bandwidth < Max)
+            if not (self.p.bandwidth_min <= bandwidth < self.p.bandwidth_max):
+                return
+
+            # 매수 진입 (종가 매수 가정)
+            buy_price = self.data.close[0]
+            
+            # 자금 관리 (1회 100만원 가정 - 분봉 단타는 소액 가정, 필요 시 수정)
+            cash = 10000000 
+            size = math.floor(cash / buy_price)
+            
+            buy_reason = (f"🚀 [진입] 2% 급등 & 수렴 돌파\n"
+                          f"   - 상승률: {(buy_price/self.data.open[0]-1)*100:.2f}%\n"
+                          f"   - 거래대금: {trade_amount/100000000:.2f}억\n"
+                          f"   - 전봉 밴드폭: {bandwidth*100:.2f}% ({self.p.bandwidth_min*100}% ~ {self.p.bandwidth_max*100}%)")
+
+            self.my_position = {
+                'price': buy_price,
+                'date': current_dt,
+                'size': size,
+                'reason': buy_reason
+            }
+            self.peak_price = buy_price
+            self.buy_points.append((current_dt, buy_price))
+
+
+    def stop(self):
+        # 강제 청산
+        if self.my_position:
+            current_dt = self.data.datetime.datetime(0)
+            current_price = self.data.close[0]
+            entry_price = self.my_position['price']
+            buy_size = self.my_position['size']
+            
+            if current_price > self.peak_price:
+                self.peak_price = current_price
+
+            pnl = (current_price - entry_price) * buy_size
+            profit_pct = ((current_price - entry_price) / entry_price) * 100
+            max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+            
+            self.trades_history.append({
+                'open_date': self.my_position['date'],
+                'date': current_dt,
+                'profit_pct': profit_pct,
+                'max_profit_pct': max_profit_pct,
+                'pnl': pnl,
+                'is_win': pnl > 0,
+                'entry_price': entry_price,
+                'exit_price': current_price,
+                'status': 'Holding',
+                'buy_reason': self.my_position['reason'],
+                'sell_reason': "백테스트 종료"
+            })
+
+
+# ==========================================
+# 실행 함수
+# ==========================================
+def run_single_backtest(file_path, bandwidth_min, bandwidth_max):
+    try:
+        df = pd.read_excel(file_path)
+        # 컬럼 매핑 (분봉 데이터 형식에 맞춰 조정 필요 시 수정)
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
+                      '일자': 'Date', '시간': 'Time'} # '시간' 컬럼이 별도로 있을 경우
+        df = df.rename(columns=rename_map)
+
+        # 날짜/시간 처리
+        if 'Date' in df.columns:
+            # Date 컬럼이 문자열이거나 datetime인 경우 처리
+            if df['Date'].dtype == 'object':
+                 df['Date'] = pd.to_datetime(df['Date'])
+            
+            # 분봉이므로 인덱스 설정 시 주의
+            df = df.sort_values('Date').set_index('Date')
+        else:
+            return None
+
+        # 숫자 변환
+        cols_to_numeric = ['Close', 'Open', 'High', 'Low', 'Volume']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '')
+                df[col] = pd.to_numeric(df[col], errors='coerce').abs()
+        df = df.dropna(subset=[c for c in cols_to_numeric if c in df.columns])
+        
+        if len(df) < 20: return None
+
+        cerebro = bt.Cerebro(runonce=False)
+        cerebro.broker.setcash(100000000)
+
+        # 전략 추가 (밴드폭 범위 조건 전달)
+        cerebro.addstrategy(CustomMinuteStrategy, bandwidth_min=bandwidth_min, bandwidth_max=bandwidth_max)
+
+        cerebro.adddata(bt.feeds.PandasData(dataname=df))
+        
+        strats = cerebro.run()
+        trades_hist = strats[0].trades_history
+
+        if not trades_hist:
+            return {'trades': 0, 'wins': 0, 'win_rate': 0, 'total_profit': 0, 'history': []}
+
+        total_trades = len(trades_hist)
+        wins = sum(1 for t in trades_hist if t['is_win'])
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+        total_profit = sum(t['pnl'] for t in trades_hist)
+
+        return {
+            'trades': total_trades,
+            'wins': wins,
+            'win_rate': win_rate,
+            'total_profit': total_profit,
+            'history': trades_hist
+        }
+
+    except Exception as e:
+        return None
+
+
+def main():
+    print(CustomMinuteStrategy.__doc__)
+    print("=== 🎯 [분봉 전략] 밴드폭 구간별 상세 거래 내역 ===")
+    
+    # 폴더 경로
+    data_dir = "stock_data_min"
+    if not os.path.exists(data_dir):
+        print(f"🚨 '{data_dir}' 폴더가 없습니다!")
+        return
+
+    files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".xlsx")]
+    print(f"📂 분석 대상: {len(files)}개 종목 (분봉 데이터)\n")
+    
+    # [수정] 5가지 밴드폭 시나리오
+    scenarios = [
+        {'label': '2% 미만',     'min': 0.0,  'max': 0.02},
+        {'label': '2% ~ 3%',    'min': 0.02, 'max': 0.03},
+        {'label': '3% ~ 4%',    'min': 0.03, 'max': 0.04},
+        {'label': '4% ~ 5%',    'min': 0.04, 'max': 0.05},
+        {'label': '5% 이상',     'min': 0.05, 'max': 100.0},
+    ]
+
+    scenario_results = []
+
+    for sc in scenarios:
+        print(f"\n🚀 [시나리오] 밴드폭 {sc['label']} 실행 중...")
+        # 상세 내역 헤더 출력
+        print(f"{'종목명':<10} | {'매수일시':<16} | {'매도일시':<16} | {'매수가':>9} | {'매도가':>9} | {'수익률':>7}")
+        print("-" * 80)
+
+        total_stats = {'trades': 0, 'profit': 0, 'wins': 0}
+        active_stocks = 0
+
+        for file_path in files:
+            stock_name = os.path.basename(file_path).split('_')[-1].replace('.xlsx', '')
+            
+            res = run_single_backtest(file_path, sc['min'], sc['max'])
+
+            if res and res['trades'] > 0:
+                active_stocks += 1
+                total_stats['trades'] += res['trades']
+                total_stats['profit'] += res['total_profit']
+                total_stats['wins'] += res['wins']
+                
+                # 각 거래 내역 출력
+                for t in res['history']:
+                    # 날짜/시간 포맷팅
+                    buy_date = t['open_date'].strftime('%Y-%m-%d %H:%M')
+                    sell_date = t['date'].strftime('%Y-%m-%d %H:%M')
+                    
+                    # 수익률에 따른 색상 마크 (터미널용)
+                    mark = "🔴" if t['profit_pct'] > 0 else "🔵"
+                    
+                    print(f"{stock_name:<10} | {buy_date:<16} | {sell_date:<16} | {t['entry_price']:9,.0f} | {t['exit_price']:9,.0f} | {t['profit_pct']:6.2f}% {mark}")
+
+        print("-" * 80)
+        avg_win_rate = (total_stats['wins'] / total_stats['trades'] * 100) if total_stats['trades'] > 0 else 0
+        
+        scenario_results.append({
+            'label': sc['label'],
+            'trades': total_stats['trades'],
+            'win_rate': avg_win_rate,
+            'total_profit': total_stats['profit'],
+            'active_stocks': active_stocks
+        })
+
+    print("\n\n📊 [최종 시나리오별 성과 비교]")
+    print("=" * 80)
+    print(f"{'구간 (Bandwidth)':<15} | {'체결 종목수':>10} | {'총 매매횟수':>10} | {'전체 승률':>10} | {'총 수익금':>18}")
+    print("-" * 80)
+
+    for res in scenario_results:
+        print(f"{res['label']:<15} | {res['active_stocks']:10d}개 | {res['trades']:10d}회 | {res['win_rate']:9.1f}% | {res['total_profit']:18,.0f}원")
+    print("=" * 80)
+
+if __name__ == "__main__":
+    main()
