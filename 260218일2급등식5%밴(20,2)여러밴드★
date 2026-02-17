@@ -1,0 +1,406 @@
+# ==========================================
+# 📊 [개별 게임별 상세 성과 리포트]
+# ==========================================================================================================
+# 📊 [최종 시나리오별 성과 비교]
+# ================================================================================
+# 구간 (Bandwidth)  |     체결 종목수 |     총 매매횟수 |      전체 승률 |              총 수익금
+# --------------------------------------------------------------------------------
+# 6% 이하           |         28개 |         60회 |      46.7% |         -2,094,877원
+# 6% ~ 8%         |         38개 |        143회 |      43.4% |         10,396,504원
+# 8% ~ 10%        |         38개 |        230회 |      43.9% |         43,615,596원
+# 10% ~ 12%       |         44개 |        293회 |      40.3% |         36,817,317원
+# 12% 이상          |         50개 |       1961회 |      42.2% |        329,426,283원
+# ==========================================================================================================
+import matplotlib
+
+# 화면 표시 없이 내부에서 이미지 생성 (충돌 방지)
+matplotlib.use('Agg')
+
+import backtrader as bt
+import pandas as pd
+import os
+import math
+from datetime import time, timedelta
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+
+# ==========================================
+# [전략] 일봉 급등주 돌파 + 밴드폭 구간 필터 + 정밀 매도
+# ==========================================
+class CustomDailyStrategy(bt.Strategy):
+    """
+    [상세 전략 설명]
+    ================================================================================
+    1. 매수 진입 조건 (모두 만족 시) - 당일 돌파 확인 즉시 진입 가정
+       A. [변동성 돌파]
+          - 오늘 고가(High)가 '전일 종가 + 5%' 가격을 넘었으면 돌파로 인정.
+          - 매수가격: 목표가(전일종가+5%)와 시가(Open) 중 큰 값. (갭상승 시 시가 매수)
+       B. [유동성] (오늘) 거래대금 50억 원 이상.
+       C. [추세] (오늘) 기준 3일선 > 5일선 정배열 상태.
+       D. [수렴] (전일) 기준 볼린저밴드 밴드폭이 설정된 구간 내 위치.
+
+    2. 매도 청산 조건 - 장중 데드크로스 즉시 청산 가정
+       - 오늘 기준 3일선과 5일선이 만나는 가격(Cross Price) 계산.
+       - 오늘 저가(Low)가 이 가격 이하라면 장중 데드크로스 발생으로 간주.
+       - 매도가격: 교차가격(Cross Price)과 시가(Open) 중 작은 값. (갭하락 시 시가 매도)
+    ================================================================================
+    """
+    params = (
+        ('target_pct', 0.05),  # 5%
+        ('ma_fast', 3),  # 3일
+        ('ma_slow', 5),  # 5일
+        ('boll_period', 20),  # 볼린저밴드 기간
+        ('boll_dev', 2.0),  # 볼린저밴드 승수
+        ('bandwidth_min', 0.12),  # 밴드폭 최소값
+        ('bandwidth_max', 100.0),  # 밴드폭 최대값
+        ('debug', False),  # 디버그 모드
+    )
+
+    def __init__(self):
+        self.ma3 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_fast)
+        self.ma5 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_slow)
+
+        # 볼린저밴드 지표
+        typical_price = (self.data.high + self.data.low + self.data.close) / 3.0
+        self.bband = bt.indicators.BollingerBands(typical_price, period=self.p.boll_period, devfactor=self.p.boll_dev)
+
+        # 수동 포지션 관리용 변수 (Backtrader Broker 미사용)
+        self.my_position = None  # None or dict {'price': ..., 'date': ..., 'size': ...}
+        self.trades_history = []  # 결과 저장소
+
+        self.buy_points = []  # 차트용
+        self.sell_points = []  # 차트용
+
+        self.peak_price = 0  # 보유 중 최고가
+
+    def log(self, txt, dt=None):
+        """디버깅용 로그 출력 함수"""
+        if self.p.debug:
+            dt = dt or self.data.datetime.date(0)
+            print(f'[{dt.isoformat()}] {txt}')
+
+    def next(self):
+        # ----------------------------------------------------------------------
+        # 데이터 유효성 검사
+        if len(self.data) < max(self.p.ma_slow + 2, self.p.boll_period + 2):
+            return
+
+        current_date = self.data.datetime.date(0)
+
+        # ----------------------------------------------------------------------
+        # [1] 보유 중일 때: 매도(청산) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position:
+            # 최고가 갱신 (현재 봉의 고가 기준)
+            if self.data.high[0] > self.peak_price:
+                self.peak_price = self.data.high[0]
+
+            # 데드크로스 가격 계산 (오늘 기준)
+            # MA3(0) < MA5(0)가 되는 C(0) 찾기
+            # (C0 + C-1 + C-2)/3 < (C0 + C-1 + C-2 + C-3 + C-4)/5
+            # => C0 < 1.5*(C-3 + C-4) - (C-1 + C-2)
+            c_1 = self.data.close[-1]
+            c_2 = self.data.close[-2]
+            c_3 = self.data.close[-3]
+            c_4 = self.data.close[-4]
+
+            cross_price_raw = 1.5 * (c_3 + c_4) - (c_1 + c_2)
+            cross_price = round(cross_price_raw)  # 정수화
+
+            sell_signal = False
+            sell_price = 0
+            sell_reason = ""
+
+            # 조건 1: 이미 전일 종가 기준으로 역배열 상태였던 경우 (안전장치)
+            if self.ma3[-1] < self.ma5[-1]:
+                sell_signal = True
+                sell_price = self.data.open[0]  # 시가 매도
+                sell_reason = (f"📉 [매도 사유] 전일 이미 데드크로스 상태\n"
+                               f"   - 전일 MA3({self.ma3[-1]:.0f}) < MA5({self.ma5[-1]:.0f})\n"
+                               f"   - 금일 시가({sell_price:,.0f}원)에 즉시 청산")
+
+            # 조건 2: 장중 데드크로스 발생 (저가가 교차 가격 이하)
+            elif self.data.low[0] <= cross_price:
+                sell_signal = True
+                # 갭하락(시가 < 교차가)이면 시가 매도, 아니면 교차가 매도
+                if self.data.open[0] < cross_price:
+                    sell_price = self.data.open[0]
+                    sell_reason = (f"📉 [매도 사유] 갭하락으로 장중 데드크로스 확정\n"
+                                   f"   - 교차 임계가: {cross_price:,.0f}원\n"
+                                   f"   - 시가({sell_price:,.0f}원)가 이미 임계가를 하회하여 시가 청산")
+                else:
+                    sell_price = cross_price
+                    sell_reason = (f"📉 [매도 사유] 장중 3일/5일선 데드크로스 발생\n"
+                                   f"   - 교차 임계가: {cross_price:,.0f}원\n"
+                                   f"   - 장중 저가({self.data.low[0]:,.0f}원)가 임계가 터치")
+
+            if sell_signal:
+                # 거래 기록 및 포지션 정리
+                entry_price = self.my_position['price']
+                buy_size = self.my_position['size']
+                buy_reason = self.my_position['reason']
+                open_date = self.my_position['date']
+
+                # 수익금/률 계산
+                pnl = (sell_price - entry_price) * buy_size
+                profit_pct = ((sell_price - entry_price) / entry_price) * 100
+
+                # 보유 중 최대 수익률 (Peak는 이번 봉 고가까지 포함되어 있으므로 유효)
+                max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+
+                self.trades_history.append({
+                    'open_date': open_date,
+                    'date': current_date,
+                    'profit_pct': profit_pct,
+                    'max_profit_pct': max_profit_pct,
+                    'pnl': pnl,
+                    'is_win': pnl > 0,
+                    'entry_price': entry_price,
+                    'exit_price': sell_price,
+                    'status': 'Closed',
+                    'buy_reason': buy_reason,
+                    'sell_reason': sell_reason
+                })
+
+                self.sell_points.append((current_date, sell_price))
+                self.my_position = None
+                self.peak_price = 0
+                return  # 매도한 날은 다시 매수하지 않음 (단타 방지)
+
+        # ----------------------------------------------------------------------
+        # [2] 미보유 중일 때: 매수(진입) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position is None:
+            # 기준: 전일 종가
+            prev_close = self.data.close[-1]
+            target_price = prev_close * (1 + self.p.target_pct)
+            target_price = math.ceil(target_price)  # 1원 단위 올림
+
+            # A. 변동성 돌파 확인 (오늘 고가가 타겟 이상인가?)
+            if self.data.high[0] < target_price:
+                return
+
+            # B. 유동성 확인 (오늘 거래대금)
+            trade_amount = self.data.close[0] * self.data.volume[0]
+            if trade_amount < 5000000000:
+                return
+
+            # C. 정배열 확인 (오늘 종가 기준)
+            # 장중 돌파 시점에는 아직 종가가 확정되지 않았지만,
+            # "성공한 케이스"를 찾는 분석이므로 일봉 완성 기준으로 정배열 유지를 조건으로 함
+            if self.ma3[0] <= self.ma5[0]:
+                return
+
+            # (추가) 전일에도 정배열이었어야 하는가? -> 전략 설명상 "지속 정배열"
+            if self.ma3[-1] <= self.ma5[-1]:
+                return
+
+            # D. 밴드폭 확인 (전일 기준)
+            top = self.bband.lines.top[-1]
+            bot = self.bband.lines.bot[-1]
+            mid = self.bband.lines.mid[-1]
+
+            if mid == 0: return
+            bandwidth = (top - bot) / mid
+
+            if not (self.p.bandwidth_min <= bandwidth < self.p.bandwidth_max):
+                return
+
+            # 매수 체결 가격 결정
+            # 시가가 이미 타겟보다 높으면(갭상승) 시가 매수
+            # 아니라면 타겟 가격에 매수
+            buy_price = 0
+            if self.data.open[0] > target_price:
+                buy_price = self.data.open[0]
+            else:
+                buy_price = target_price
+
+            # 매수 기록 생성
+            cash = 10000000  # 1종목당 1천만원 가정
+            size = math.floor(cash / buy_price)
+
+            buy_reason = (f"🚀 [매수 사유] 볼린저밴드 급등주 패턴 포착\n"
+                          f"   1. 변동성 돌파: 전일({self.data.datetime.date(-1)}) 종가({prev_close:,.0f}원) 대비 +5%({target_price:,.0f}원) 돌파\n"
+                          f"   2. 밴드폭 조건: 전일 밴드폭 {bandwidth * 100:.2f}% (조건: {self.p.bandwidth_min * 100}% 이상)\n"
+                          f"   3. 유동성 확인: 금일 거래대금 {trade_amount / 100000000:.1f}억\n"
+                          f"   4. 이평선 추세: 정배열 유지 (MA3: {self.ma3[0]:.0f} > MA5: {self.ma5[0]:.0f})")
+
+            self.my_position = {
+                'price': buy_price,
+                'date': current_date,
+                'size': size,
+                'reason': buy_reason
+            }
+            self.peak_price = buy_price  # 초기화
+            self.buy_points.append((current_date, buy_price))
+
+    def stop(self):
+        # 마지막 날 강제 청산 (보유 중인 경우)
+        if self.my_position:
+            current_date = self.data.datetime.date(0)
+            current_price = self.data.close[0]
+
+            entry_price = self.my_position['price']
+            buy_size = self.my_position['size']
+
+            if current_price > self.peak_price:
+                self.peak_price = current_price
+
+            pnl = (current_price - entry_price) * buy_size
+            profit_pct = ((current_price - entry_price) / entry_price) * 100
+            max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+
+            self.trades_history.append({
+                'open_date': self.my_position['date'],
+                'date': current_date,
+                'profit_pct': profit_pct,
+                'max_profit_pct': max_profit_pct,
+                'pnl': pnl,
+                'is_win': pnl > 0,
+                'entry_price': entry_price,
+                'exit_price': current_price,
+                'status': 'Holding',
+                'buy_reason': self.my_position['reason'],
+                'sell_reason': "백테스트 종료로 인한 평가 처리"
+            })
+
+
+# ==========================================
+# 실행 함수 (단일 구간)
+# ==========================================
+def run_single_backtest(file_path, target_pct, bandwidth_min, bandwidth_max):
+    try:
+        df = pd.read_excel(file_path)
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
+                      '일자': 'Date'}
+        df = df.rename(columns=rename_map)
+
+        cols_to_numeric = ['Close', 'Open', 'High', 'Low', 'Volume']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '')
+                df[col] = pd.to_numeric(df[col], errors='coerce').abs()
+
+        df = df.dropna(subset=[c for c in cols_to_numeric if c in df.columns])
+
+        if 'Date' in df.columns:
+            if df['Date'].dtype == 'object':
+                df['Date'] = pd.to_datetime(df['Date'])
+            df = df.sort_values('Date').set_index('Date')
+        else:
+            return None
+
+        if len(df) < 30:
+            return None
+
+        cerebro = bt.Cerebro(runonce=False)
+        # Broker는 사용하지 않지만 기본 설정 유지
+        cerebro.broker.setcash(100000000)
+
+        # [수정] 밴드폭 범위 파라미터 전달
+        cerebro.addstrategy(CustomDailyStrategy, target_pct=target_pct,
+                            bandwidth_min=bandwidth_min, bandwidth_max=bandwidth_max)
+
+        cerebro.adddata(bt.feeds.PandasData(dataname=df))
+
+        strats = cerebro.run()
+
+        trades_hist = strats[0].trades_history
+        if not trades_hist:
+            return {'trades': 0, 'wins': 0, 'win_rate': 0, 'profit_rate': 0, 'total_profit': 0, 'history': []}
+
+        total_trades = len(trades_hist)
+        wins = sum(1 for t in trades_hist if t['is_win'])
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+        total_profit = sum(t['pnl'] for t in trades_hist)
+        total_profit_rate = sum(t['profit_pct'] for t in trades_hist)
+
+        return {
+            'trades': total_trades,
+            'wins': wins,
+            'win_rate': win_rate,
+            'profit_rate': total_profit_rate,
+            'total_profit': total_profit,
+            'history': trades_hist
+        }
+
+    except Exception as e:
+        return None
+
+
+def main():
+    print(CustomDailyStrategy.__doc__)
+    print("=== 🎯 [일봉 전략] 밴드폭 구간별 성과 비교 분석 ===")
+
+    data_dir = "stock_data_51"
+    if not os.path.exists(data_dir):
+        print(f"🚨 '{data_dir}' 폴더가 없습니다!")
+        return
+
+    files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".xlsx")]
+    print(f"📂 분석 대상: {len(files)}개 종목\n")
+
+    target_pct = 0.05
+
+    # 요청된 5가지 밴드폭 시나리오
+    scenarios = [
+        {'label': '6% 이하', 'min': 0.0, 'max': 0.06},
+        {'label': '6% ~ 8%', 'min': 0.06, 'max': 0.08},
+        {'label': '8% ~ 10%', 'min': 0.08, 'max': 0.10},
+        {'label': '10% ~ 12%', 'min': 0.10, 'max': 0.12},
+        {'label': '12% 이상', 'min': 0.12, 'max': 100.0},
+    ]
+
+    scenario_results = []
+
+    for sc in scenarios:
+        print(f"\n🚀 [시나리오] 밴드폭 {sc['label']} 실행 중...")
+        # 헤더 출력 (종목별 요약)
+        print(f"{'종목명':<12} | {'거래수':>5} | {'승률':>6} | {'총수익':>12}")
+        print("-" * 50)
+
+        total_stats = {'trades': 0, 'profit': 0, 'wins': 0}
+        active_stocks = 0
+
+        for file_path in files:
+            stock_name = os.path.basename(file_path).split('_')[-1].replace('.xlsx', '')
+
+            # 시나리오의 min/max 적용
+            res = run_single_backtest(file_path, target_pct, sc['min'], sc['max'])
+
+            if res and res['trades'] > 0:
+                active_stocks += 1
+                total_stats['trades'] += res['trades']
+                total_stats['profit'] += res['total_profit']
+                total_stats['wins'] += res['wins']
+
+                print(
+                    f"{stock_name:<12} | {res['trades']:5d}회 | {res['win_rate']:6.1f}% | {res['total_profit']:12,.0f}원")
+
+        avg_win_rate = (total_stats['wins'] / total_stats['trades'] * 100) if total_stats['trades'] > 0 else 0
+
+        scenario_results.append({
+            'label': sc['label'],
+            'trades': total_stats['trades'],
+            'win_rate': avg_win_rate,
+            'total_profit': total_stats['profit'],
+            'active_stocks': active_stocks
+        })
+
+    # 최종 비교 리포트 출력
+    print("\n\n📊 [최종 시나리오별 성과 비교]")
+    print("=" * 80)
+    print(f"{'구간 (Bandwidth)':<15} | {'체결 종목수':>10} | {'총 매매횟수':>10} | {'전체 승률':>10} | {'총 수익금':>18}")
+    print("-" * 80)
+
+    for res in scenario_results:
+        print(
+            f"{res['label']:<15} | {res['active_stocks']:10d}개 | {res['trades']:10d}회 | {res['win_rate']:9.1f}% | {res['total_profit']:18,.0f}원")
+    print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
