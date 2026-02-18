@@ -174,8 +174,8 @@ class CustomDailyStrategy(bt.Strategy):
 
             # B. 유동성 확인 (전일 거래대금)
             trade_amount = self.data.close[-1] * self.data.volume[-1]
-            # if trade_amount < 5000000000:  # 10억
-            #     return
+            if trade_amount < 5000000000:  # 50억
+                return
 
             # [수정] C. 정배열 확인 (전일 기준 필터 삭제)
             if self.ma3[-1] <= self.ma5[-1]: return
