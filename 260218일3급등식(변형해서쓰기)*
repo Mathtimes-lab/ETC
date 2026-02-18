@@ -1,0 +1,544 @@
+# ==========================================
+# 📊 [상세 거래 내역 리포트] 밴드폭 12% 이상 + RSI + 월별/년도별 분석 (수정판)
+# =================================================================================================================
+# 종목명          | 매수일       | 매도일       |     매수가 |     매도가 |  수익률 | 최대수익률 |   RSI
+# -----------------------------------------------------------------------------------------------------------------
+# ...
+# =================================================================================================================
+import matplotlib
+
+# 화면 표시 없이 내부에서 이미지 생성 (충돌 방지)
+matplotlib.use('Agg')
+
+import backtrader as bt
+import pandas as pd
+import os
+import math
+from datetime import time, timedelta
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+
+# [수정] 데이터 파일의 컬럼명(대문자)과 Backtrader 내부 라인을 매핑
+class CustomPandasData(bt.feeds.PandasData):
+    lines = ('rsi',)
+    params = (
+        ('datetime', None),  # 인덱스를 날짜로 사용
+        ('open', 'Open'),  # 파일의 'Open' 컬럼
+        ('high', 'High'),  # 파일의 'High' 컬럼
+        ('low', 'Low'),  # 파일의 'Low' 컬럼
+        ('close', 'Close'),  # 파일의 'Close' 컬럼
+        ('volume', 'Volume'),  # 파일의 'Volume' 컬럼
+        ('openinterest', None),  # OpenInterest 없음
+        ('rsi', 'rsi'),  # 계산된 'rsi' 컬럼 사용
+    )
+
+
+# [추가] RSI 계산 함수 (데이터 전처리용)
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+
+# ==========================================
+# [전략] 일봉 급등주 돌파 + 밴드폭 구간 필터 + 정밀 매도
+# ==========================================
+class CustomDailyStrategy(bt.Strategy):
+    """
+    [상세 전략 설명]
+    ================================================================================
+    1. 매수 진입 조건 (모두 만족 시)
+       A. [변동성 돌파] 오늘 고가 > Max(전일종가+5%, 정배열전환가)
+       B. [유동성] 전일 거래대금 10억 원 이상 (조건 완화됨)
+       C. [추세] 당일 기준 3일선 > 5일선 정배열 (전일 역배열이어도 당일 전환 시 인정)
+          - 매수가격을 '정배열 전환가' 이상으로 설정하여 체결 시점 정배열 보장
+       D. [수렴] 전일 기준 밴드폭 12% 이상
+    ================================================================================
+    """
+    params = (
+        ('target_pct', 0.05),  # 5%
+        ('ma_fast', 3),  # 3일
+        ('ma_slow', 5),  # 5일
+        ('boll_period', 20),  # 볼린저밴드 기간
+        ('boll_dev', 2.0),  # 볼린저밴드 승수
+        ('bandwidth_min', 0.12),  # 밴드폭 최소값
+        ('bandwidth_max', 100.0),  # 밴드폭 최대값
+        ('debug', False),  # 디버그 모드
+    )
+
+    def __init__(self):
+        self.ma3 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_fast)
+        self.ma5 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_slow)
+
+        # 볼린저밴드 지표
+        typical_price = (self.data.high + self.data.low + self.data.close) / 3.0
+        self.bband = bt.indicators.BollingerBands(typical_price, period=self.p.boll_period, devfactor=self.p.boll_dev)
+
+        # 수동 포지션 관리용 변수 (Backtrader Broker 미사용)
+        self.my_position = None
+        self.trades_history = []
+        self.peak_price = 0
+
+    def next(self):
+        # 데이터 유효성 검사
+        if len(self.data) < max(self.p.ma_slow + 2, self.p.boll_period + 2):
+            return
+
+        current_date = self.data.datetime.date(0)
+
+        # ----------------------------------------------------------------------
+        # [1] 보유 중일 때: 매도(청산) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position:
+            # 최고가 갱신
+            if self.data.high[0] > self.peak_price:
+                self.peak_price = self.data.high[0]
+
+            # 데드크로스 가격 계산 (오늘 기준)
+            # MA3(0) < MA5(0)가 되는 C(0) 찾기
+            # P0 < 1.5*(P-3 + P-4) - (P-1 + P-2)
+            c_1 = self.data.close[-1]
+            c_2 = self.data.close[-2]
+            c_3 = self.data.close[-3]
+            c_4 = self.data.close[-4]
+
+            cross_price_raw = 1.5 * (c_3 + c_4) - (c_1 + c_2)
+            cross_price = round(cross_price_raw)
+
+            sell_signal = False
+            sell_price = 0
+            sell_reason = ""
+
+            # 조건 1: 이미 전일 종가 기준으로 역배열 상태 (안전장치)
+            if self.ma3[-1] < self.ma5[-1]:
+                sell_signal = True
+                sell_price = self.data.open[0]
+                sell_reason = "전일 이미 데드크로스 상태"
+
+            # 조건 2: 장중 데드크로스 발생 (저가가 교차 가격 이하)
+            elif self.data.low[0] <= cross_price:
+                sell_signal = True
+                if self.data.open[0] < cross_price:
+                    sell_price = self.data.open[0]
+                    sell_reason = "갭하락 데드크로스"
+                else:
+                    sell_price = cross_price
+                    sell_reason = "장중 데드크로스 터치"
+
+            if sell_signal:
+                # 거래 기록
+                entry_price = self.my_position['price']
+                buy_size = self.my_position['size']
+                buy_reason = self.my_position['reason']
+                entry_rsi = self.my_position.get('rsi', 0)
+                open_date = self.my_position['date']
+
+                pnl = (sell_price - entry_price) * buy_size
+                profit_pct = ((sell_price - entry_price) / entry_price) * 100
+                max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+
+                self.trades_history.append({
+                    'open_date': open_date,
+                    'date': current_date,
+                    'profit_pct': profit_pct,
+                    'max_profit_pct': max_profit_pct,
+                    'pnl': pnl,
+                    'is_win': pnl > 0,
+                    'entry_price': entry_price,
+                    'exit_price': sell_price,
+                    'entry_rsi': entry_rsi,
+                    'status': 'Closed',
+                    'buy_reason': buy_reason,
+                    'sell_reason': sell_reason
+                })
+                self.my_position = None
+                self.peak_price = 0
+                return
+
+        # ----------------------------------------------------------------------
+        # [2] 미보유 중일 때: 매수(진입) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position is None:
+            prev_close = self.data.close[-1]
+
+            # 1. 5% 변동성 목표가
+            target_price = prev_close * (1 + self.p.target_pct)
+            target_price = math.ceil(target_price)
+
+            # A. 1차 필터: 고가가 목표가 이상인가?
+            if self.data.high[0] < target_price:
+                return
+
+            # B. 유동성 확인 (전일 거래대금)
+            trade_amount = self.data.close[-1] * self.data.volume[-1]
+            if trade_amount > 5000000000:  # 10억
+                return
+
+            # [수정] C. 정배열 확인 (전일 기준 필터 삭제)
+            # 기존: if self.ma3[-1] <= self.ma5[-1]: return  <-- 삭제됨
+            # 대신 아래 매수가격 설정 로직에서 당일 정배열 조건을 강제함
+
+            # D. 밴드폭 확인 (전일 기준)
+            top = self.bband.lines.top[-1]
+            bot = self.bband.lines.bot[-1]
+            mid = self.bband.lines.mid[-1]
+
+            if mid == 0: return
+            bandwidth = (top - bot) / mid
+
+            if not (self.p.bandwidth_min <= bandwidth < self.p.bandwidth_max):
+                return
+
+            # [매수가격 설정 로직]
+            # 정배열 전환 가격(Golden Cross Price) 계산 (P0 > 1.5*(P3+P4) - (P1+P2))
+            c_1 = self.data.close[-1]
+            c_2 = self.data.close[-2]
+            c_3 = self.data.close[-3]
+            c_4 = self.data.close[-4]
+
+            golden_cross_price_raw = 1.5 * (c_3 + c_4) - (c_1 + c_2)
+            golden_cross_price = math.ceil(golden_cross_price_raw)
+
+            # 최종 매수 요구 가격 = Max(5% 상승가, 정배열 전환가)
+            # 전일 역배열이었어도, 오늘 이 가격을 넘으면 정배열이 됨
+            buy_req_price = max(target_price, golden_cross_price)
+
+            # 매수 체결 가격 결정
+            buy_price = 0
+            # 갭상승 시 시가 매수, 아니면 지정가 매수
+            if self.data.open[0] > buy_req_price:
+                buy_price = self.data.open[0]
+            else:
+                buy_price = buy_req_price
+
+            # 고가가 실제 진입가(buy_req_price)에 도달했는지 최종 확인
+            if self.data.high[0] < buy_req_price:
+                return
+
+            # 매수 기록 생성
+            cash = 10000000
+            size = math.floor(cash / buy_price)
+
+            buy_reason = "조건 만족 진입"
+            self.my_position = {
+                'price': buy_price,
+                'date': current_date,
+                'size': size,
+                'reason': buy_reason,
+                'rsi': self.data.rsi[0]
+            }
+            self.peak_price = buy_price
+
+    def stop(self):
+        # 마지막 날 강제 청산
+        if self.my_position:
+            current_date = self.data.datetime.date(0)
+            current_price = self.data.close[0]
+            entry_price = self.my_position['price']
+            buy_size = self.my_position['size']
+
+            if current_price > self.peak_price:
+                self.peak_price = current_price
+
+            pnl = (current_price - entry_price) * buy_size
+            profit_pct = ((current_price - entry_price) / entry_price) * 100
+            max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+            entry_rsi = self.my_position.get('rsi', 0)
+
+            self.trades_history.append({
+                'open_date': self.my_position['date'],
+                'date': current_date,
+                'profit_pct': profit_pct,
+                'max_profit_pct': max_profit_pct,
+                'pnl': pnl,
+                'is_win': pnl > 0,
+                'entry_price': entry_price,
+                'exit_price': current_price,
+                'entry_rsi': entry_rsi,
+                'status': 'Holding',
+                'buy_reason': '종료 청산',
+                'sell_reason': '종료 청산'
+            })
+
+
+# ==========================================
+# 실행 함수 (단일 구간)
+# ==========================================
+def run_single_backtest(file_path, target_pct, bandwidth_min, bandwidth_max, is_first_run=False):
+    try:
+        df = pd.read_excel(file_path)
+
+        # [수정] 컬럼명 공백 제거 (매우 중요)
+        df.columns = [c.strip() for c in df.columns]
+
+        # [디버그] 첫 파일 컬럼명 확인
+        if is_first_run:
+            print(f"🔎 [DEBUG] 로드된 컬럼명: {list(df.columns)}")
+
+        # [수정] 한글 -> 영어 매핑
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
+                      '일자': 'Date'}
+        df = df.rename(columns=rename_map)
+
+        # [수정] 날짜 컬럼 처리 강화 (인덱스로 설정)
+        if 'Date' in df.columns:
+            if pd.api.types.is_numeric_dtype(df['Date']):
+                df['Date'] = df['Date'].astype(str)
+            df['Date'] = pd.to_datetime(df['Date'])
+            df = df.sort_values('Date').set_index('Date')
+        else:
+            if isinstance(df.index, pd.DatetimeIndex):
+                pass
+            else:
+                if is_first_run: print("❌ 'Date' 컬럼을 찾을 수 없고 인덱스도 날짜가 아닙니다.")
+                return None
+
+        # [수정] 숫자형 변환 (콤마 제거 포함)
+        cols_to_numeric = ['Close', 'Open', 'High', 'Low', 'Volume']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '')
+                df[col] = pd.to_numeric(df[col], errors='coerce').abs()
+            else:
+                if is_first_run: print(f"❌ 필수 컬럼 '{col}' 누락")
+                return None
+
+        df = df.dropna(subset=[c for c in cols_to_numeric if c in df.columns])
+
+        # RSI 미리 계산 및 NaN 처리
+        if len(df) >= 14:
+            df['rsi'] = calculate_rsi(df['Close'], period=14)
+            df['rsi'] = df['rsi'].fillna(50)
+        else:
+            df['rsi'] = 50
+
+        if len(df) < 30:
+            if is_first_run: print(f"⚠️ 데이터 부족: {len(df)}행")
+            return None
+
+        cerebro = bt.Cerebro(runonce=False)
+        cerebro.broker.setcash(100000000)
+
+        # 디버그 모드 활성화 (첫 번째 파일만)
+        cerebro.addstrategy(CustomDailyStrategy,
+                            target_pct=target_pct,
+                            bandwidth_min=bandwidth_min,
+                            bandwidth_max=bandwidth_max,
+                            debug=is_first_run)
+
+        cerebro.adddata(CustomPandasData(dataname=df))
+
+        strats = cerebro.run()
+        trades_hist = strats[0].trades_history
+
+        return {
+            'trades': len(trades_hist),
+            'wins': sum(1 for t in trades_hist if t['is_win']),
+            'total_profit': sum(t['pnl'] for t in trades_hist),
+            'history': trades_hist
+        }
+
+    except Exception as e:
+        if is_first_run: print(f"❌ 에러 발생: {e}")
+        return None
+
+
+def main():
+    print(CustomDailyStrategy.__doc__)
+    print("=== 🎯 [일봉 전략] 개별 게임별 상세 성과 리포트 ===")
+    print("📌 설정: 볼린저밴드(20, 2), 밴드폭 12% 이상, 확인 매매(당일 체결)")
+
+    # [수정] 데이터 경로 변경 (stock_data_100)
+    data_dir = "stock_data_51"
+    if not os.path.exists(data_dir):
+        print(f"🚨 '{data_dir}' 폴더가 없습니다!")
+        return
+
+    files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".xlsx")]
+    print(f"📂 분석 대상: {len(files)}개 종목\n")
+
+    target_pct = 0.05
+    # [수정] 밴드폭: 12% ~ 무제한 (100.0)
+    bw_min = 0.12
+    bw_max = 100.0
+
+    print(f"\n📊 [전체 거래 내역 상세]")
+    print("=" * 110)
+    print(f"{'종목명':<12} | {'매수일':<10} | {'매도일':<10} | {'매수가':>9} | {'매도가':>9} | {'수익률':>7} | {'최대수익률':>9} | {'RSI':>6}")
+    print("-" * 110)
+
+    total_stats = {'trades': 0, 'profit': 0, 'wins': 0}
+    all_history = []
+
+    rsi_stats = {
+        '50 이하': {'games': 0, 'wins': 0, 'profit': 0},
+        '50대': {'games': 0, 'wins': 0, 'profit': 0},
+        '60대': {'games': 0, 'wins': 0, 'profit': 0},
+        '70대': {'games': 0, 'wins': 0, 'profit': 0},
+        '80대': {'games': 0, 'wins': 0, 'profit': 0},
+        '90대': {'games': 0, 'wins': 0, 'profit': 0},
+    }
+
+    monthly_stats = defaultdict(lambda: {'games': 0, 'wins': 0, 'profit': 0})
+    yearly_stats = defaultdict(lambda: {'games': 0, 'wins': 0, 'profit': 0})
+
+    for idx, file_path in enumerate(files):
+        stock_name = os.path.basename(file_path).split('_')[-1].replace('.xlsx', '')
+
+        # 첫 번째 파일만 디버그 모드 실행
+        is_first = (idx == 0)
+        res = run_single_backtest(file_path, target_pct, bw_min, bw_max, is_first_run=is_first)
+
+        if res and res['trades'] > 0:
+            total_stats['trades'] += res['trades']
+            total_stats['profit'] += res['total_profit']
+            total_stats['wins'] += res['wins']
+
+            for t in res['history']:
+                t['stock_name'] = stock_name
+                all_history.append(t)
+
+                if isinstance(t['date'], str):
+                    close_date_str = t['date']
+                else:
+                    close_date_str = t['date'].strftime('%Y-%m-%d')
+
+                if isinstance(t.get('open_date'), str):
+                    open_date_str = t.get('open_date', '-')
+                elif t.get('open_date'):
+                    open_date_str = t['open_date'].strftime('%Y-%m-%d')
+                else:
+                    open_date_str = "-"
+
+                profit_pct = t['profit_pct']
+                max_profit_pct = t.get('max_profit_pct', 0.0)
+                entry_price = t['entry_price']
+                exit_price = t['exit_price']
+                rsi_val = t.get('entry_rsi', 0)
+
+                # RSI 집계
+                bucket = ""
+                if rsi_val <= 50:
+                    bucket = '50 이하'
+                elif rsi_val < 60:
+                    bucket = '50대'
+                elif rsi_val < 70:
+                    bucket = '60대'
+                elif rsi_val < 80:
+                    bucket = '70대'
+                elif rsi_val < 90:
+                    bucket = '80대'
+                else:
+                    bucket = '90대'
+
+                if bucket:
+                    rsi_stats[bucket]['games'] += 1
+                    rsi_stats[bucket]['profit'] += t['pnl']
+                    if t['is_win']: rsi_stats[bucket]['wins'] += 1
+
+                # 월별/년도별 집계
+                dt_obj = t['open_date'] if not isinstance(t['open_date'], str) else pd.to_datetime(t['open_date'])
+                ym = dt_obj.strftime('%Y-%m')
+                y = dt_obj.strftime('%Y')
+
+                monthly_stats[ym]['games'] += 1
+                monthly_stats[ym]['profit'] += t['pnl']
+                if t['is_win']: monthly_stats[ym]['wins'] += 1
+
+                yearly_stats[y]['games'] += 1
+                yearly_stats[y]['profit'] += t['pnl']
+                if t['is_win']: yearly_stats[y]['wins'] += 1
+
+                mark = "🔴" if profit_pct > 0 else "🔵"
+                print(
+                    f"{stock_name:<12} | {open_date_str:<10} | {close_date_str:<10} | {entry_price:9,.0f} | {exit_price:9,.0f} | {profit_pct:6.2f}% | {max_profit_pct:8.2f}% | {rsi_val:6.1f} {mark}")
+
+    print("=" * 110)
+
+    avg_win_rate = (total_stats['wins'] / total_stats['trades'] * 100) if total_stats['trades'] > 0 else 0
+    print(
+        f"\n📈 [전체 요약] 총 매매 횟수: {total_stats['trades']}회, 평균 승률: {avg_win_rate:.2f}%, 총 수익금: {total_stats['profit']:,.0f}원")
+
+    # RSI 분석 출력
+    print("\n\n📊 [RSI 구간별 성과 분석]")
+    print("=" * 80)
+    print(f"{'RSI 구간':<15} | {'게임수':>10} | {'승률':>10} | {'총 수익금':>18}")
+    print("-" * 80)
+    rsi_order = ['50 이하', '50대', '60대', '70대', '80대', '90대']
+    for bucket in rsi_order:
+        s = rsi_stats[bucket]
+        win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
+        print(f"{bucket:<15} | {s['games']:10d}회 | {win_rate:9.1f}% | {s['profit']:18,.0f}원")
+    print("=" * 80)
+
+    # 월별 분석 출력
+    print("\n\n📊 [월별 성과 분석]")
+    print("=" * 65)
+    print(f"{'월 (Month)':<10} | {'게임수':>6} | {'승률':>8} | {'총 수익금':>18}")
+    print("-" * 65)
+    for ym in sorted(monthly_stats.keys()):
+        s = monthly_stats[ym]
+        win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
+        print(f"{ym:<10} | {s['games']:6d}회 | {win_rate:7.1f}% | {s['profit']:18,.0f}원")
+    print("=" * 65)
+
+    # 년도별 분석 출력
+    print("\n\n📊 [년도별 성과 분석]")
+    print("=" * 65)
+    print(f"{'년도 (Year)':<10} | {'게임수':>6} | {'승률':>8} | {'총 수익금':>18}")
+    print("-" * 65)
+    for y in sorted(yearly_stats.keys()):
+        s = yearly_stats[y]
+        win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
+        print(f"{y:<10} | {s['games']:6d}회 | {win_rate:7.1f}% | {s['profit']:18,.0f}원")
+    print("=" * 65)
+
+    # [추가] 특정 종목(달바글로벌) 특정 날짜(11월 5일) 상세 분석 출력
+    print("\n\n🔍 [특별 분석 요청] '달바글로벌' 11월 5일 매수 건 상세 분석")
+    print("=" * 80)
+
+    target_found = False
+    for t in all_history:
+        if t['stock_name'] == '달바글로벌':
+            if hasattr(t['open_date'], 'strftime'):
+                if t['open_date'].strftime('%m-%d') == '11-05':
+                    target_found = True
+            elif isinstance(t['open_date'], str) and '11-05' in t['open_date']:
+                target_found = True
+
+            if target_found:
+                print(f"📌 종목명: {t['stock_name']}")
+                print(f"📅 매수일: {t['open_date']}  |  📅 매도일: {t['date']}")
+                print(f"💵 매수가: {t['entry_price']:,.0f}원  |  💵 매도가: {t['exit_price']:,.0f}원")
+                print(f"📊 수익률: {t['profit_pct']:.2f}%  (보유중 최대수익률: {t['max_profit_pct']:.2f}%)")
+                print("-" * 80)
+                print(t.get('buy_reason', '매수 이유 정보 없음'))
+                print("-" * 80)
+                print(t.get('sell_reason', '매도 이유 정보 없음'))
+                print("=" * 80)
+                break
+
+    if not target_found:
+        print("⚠️ 11월 5일 체결 내역 없음. 인근 날짜 검색 중...")
+        for t in all_history:
+            if t['stock_name'] == '달바글로벌':
+                if hasattr(t['open_date'], 'strftime'):
+                    m = t['open_date'].strftime('%m')
+                else:
+                    m = t['open_date'].split('-')[1]
+
+                if m == '11':
+                    print(f"📌 유사 내역 발견: {t['open_date']} 매수 / {t['date']} 매도")
+                    print("-" * 80)
+                    print(t.get('buy_reason', '매수 이유 정보 없음'))
+                    print("-" * 80)
+                    print(t.get('sell_reason', '매도 이유 정보 없음'))
+                    print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
