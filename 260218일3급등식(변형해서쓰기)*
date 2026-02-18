@@ -173,8 +173,8 @@ class CustomDailyStrategy(bt.Strategy):
                 return
 
             # B. 유동성 확인 (전일 거래대금)
-            trade_amount = self.data.close[0] * self.data.volume[0]
-            if trade_amount < 5000000000:  # 10억
+            trade_amount = self.data.close[-1] * self.data.volume[-1]
+            if trade_amount < 5000000000:  # 50억
                 return
 
             # [수정] C. 정배열 확인 (전일 기준 필터 삭제)
@@ -183,6 +183,10 @@ class CustomDailyStrategy(bt.Strategy):
             if self.ma3[-1] <= self.ma5[-1]:
                 return
             # 대신 아래 매수가격 설정 로직에서 당일 정배열 조건을 강제함
+
+            # C-2. RSI조건 (70이상인 것만 진입)
+            if self.data.rsi[0] < 70:
+                return
 
             # D. 밴드폭 확인 (전일 기준)
             top = self.bband.lines.top[-1]
