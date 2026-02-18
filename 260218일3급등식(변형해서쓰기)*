@@ -174,18 +174,18 @@ class CustomDailyStrategy(bt.Strategy):
 
             # B. 유동성 확인 (전일 거래대금)
             trade_amount = self.data.close[-1] * self.data.volume[-1]
-            if trade_amount < 5000000000:  # 50억
+            if trade_amount < 50 * 100000000:  # 50억
                 return
 
             # [수정] C. 정배열 확인 (전일 기준 필터 삭제)
             if self.ma3[0] <= self.ma5[0]:
                 return
-            if self.ma3[-1] <= self.ma5[-1]:
+            # if self.ma3[-1] <= self.ma5[-1]:
                 return
             # 대신 아래 매수가격 설정 로직에서 당일 정배열 조건을 강제함
 
             # C-2. RSI조건 (70이상인 것만 진입)
-            if self.data.rsi[0] < 70:
+            # if self.data.rsi[0] < 70:
                 return
 
             # D. 밴드폭 확인 (전일 기준)
@@ -211,8 +211,8 @@ class CustomDailyStrategy(bt.Strategy):
 
             # 최종 매수 요구 가격 = Max(5% 상승가, 정배열 전환가)
             # 전일 역배열이었어도, 오늘 이 가격을 넘으면 정배열이 됨
-            # buy_req_price = max(target_price, golden_cross_price)
-            buy_req_price = target_price
+            buy_req_price = max(target_price, golden_cross_price)
+            # buy_req_price = target_price
 
             # 매수 체결 가격 결정
             buy_price = 0
@@ -361,7 +361,7 @@ def main():
     print("📌 설정: 볼린저밴드(20, 2), 밴드폭 12% 이상, 확인 매매(당일 체결)")
 
     # [수정] 데이터 경로 변경 (stock_data_100)
-    data_dir = "stock_data_51"
+    data_dir = "stock_data_100"
     if not os.path.exists(data_dir):
         print(f"🚨 '{data_dir}' 폴더가 없습니다!")
         return
