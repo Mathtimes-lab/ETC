@@ -181,8 +181,8 @@ class CustomDailyStrategy(bt.Strategy):
             if self.ma3[-1] <= self.ma5[-1]: return
             # 대신 아래 매수가격 설정 로직에서 당일 정배열 조건을 강제함
 
-            # C-2. RSI조건 (70이상인 것만 진입)
-            if self.data.rsi[0] < 70:
+            # C-2. RSI조건 (70이상인 것만 진입) -> [수정] 전일 기준
+            if self.data.rsi[-1] < 70:
                 return
 
             # D. 밴드폭 확인 (전일 기준)
@@ -232,7 +232,7 @@ class CustomDailyStrategy(bt.Strategy):
                 'date': current_date,
                 'size': size,
                 'reason': buy_reason,
-                'rsi': self.data.rsi[0]
+                'rsi': self.data.rsi[-1]  # [수정] 기록도 전일 기준
             }
             self.peak_price = buy_price
 
