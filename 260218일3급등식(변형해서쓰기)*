@@ -173,12 +173,15 @@ class CustomDailyStrategy(bt.Strategy):
                 return
 
             # B. 유동성 확인 (전일 거래대금)
-            trade_amount = self.data.close[-1] * self.data.volume[-1]
-            if trade_amount > 5000000000:  # 10억
+            trade_amount = self.data.close[0] * self.data.volume[0]
+            if trade_amount < 5000000000:  # 10억
                 return
 
             # [수정] C. 정배열 확인 (전일 기준 필터 삭제)
-            # 기존: if self.ma3[-1] <= self.ma5[-1]: return  <-- 삭제됨
+            if self.ma3[0] <= self.ma5[0]:
+                return
+            if self.ma3[-1] <= self.ma5[-1]:
+                return
             # 대신 아래 매수가격 설정 로직에서 당일 정배열 조건을 강제함
 
             # D. 밴드폭 확인 (전일 기준)
@@ -204,7 +207,8 @@ class CustomDailyStrategy(bt.Strategy):
 
             # 최종 매수 요구 가격 = Max(5% 상승가, 정배열 전환가)
             # 전일 역배열이었어도, 오늘 이 가격을 넘으면 정배열이 됨
-            buy_req_price = max(target_price, golden_cross_price)
+            # buy_req_price = max(target_price, golden_cross_price)
+            buy_req_price = target_price
 
             # 매수 체결 가격 결정
             buy_price = 0
