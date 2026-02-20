@@ -518,10 +518,10 @@ class Kiwoom(QMainWindow):
         elif type == 'D' and cond_name.strip() == self.BUY_STRATEGY_NAME.strip():
             self.current_conditioned_stocks.discard(code)
 
-    def _send_order(self, code, order_type, quantity, price):
+    def _send_order(self, code, order_type, quantity, price, order_no=""):
         hoga = "03" if order_type == 2 else "00"
         self.kiwoom.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
-                                ["send_order", "0101", self.account_num, order_type, code, quantity, price, hoga, ""])
+                                ["send_order", "0101", self.account_num, order_type, code, quantity, price, hoga, order_no])
 
     def _handler_chejan_data(self, gubun, item_cnt, fid_list):
         if gubun == '0':  # 접수/체결
@@ -600,9 +600,9 @@ class Kiwoom(QMainWindow):
         if now.hour == 15 and now.minute >= 20 and self.open_buy_orders:
             print("[장마감] 미체결 취소")
             for code, order_no in list(self.open_buy_orders.items()):
-                self._send_order(code, 3, 0, 0)
+                self._send_order(code, 3, 0, 0, order_no)
                 del self.open_buy_orders[code]
-                self._safe_delay(300)
+                self._safe_delay(300) 
 
     def _print_slippage_report(self):
         if not self.held_stocks: return
