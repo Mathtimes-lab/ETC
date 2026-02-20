@@ -52,6 +52,7 @@ class CustomDailyStrategy(bt.Strategy):
     ================================================================================
     1. 매수 진입 조건 (모두 만족 시)
        A. [변동성 돌파] 오늘 고가 > Max(전일종가+5%, 정배열전환가)
+          - 추가: 최근 2봉 이내에 목표 상승률(target_pct) 이상의 고가 형성 이력이 없을 것
        B. [유동성] 전일 거래대금 10억 원 이상 (조건 완화됨)
        C. [추세] 당일 기준 3일선 > 5일선 정배열 (전일 역배열이어도 당일 전환 시 인정)
           - 매수가격을 '정배열 전환가' 이상으로 설정하여 체결 시점 정배열 보장
@@ -169,13 +170,21 @@ class CustomDailyStrategy(bt.Strategy):
             target_price = prev_close * (1 + self.p.target_pct)
             target_price = math.ceil(target_price)
 
-            # A. 1차 필터: 고가가 목표가 이상인가?
+            # A. 1차 필터: 고가가 목표가 이상인가? 및 과거 급등 제한 조건 추가
             if self.data.high[0] < target_price:
+                return
+
+            # [추가 조건 1] 2봉전 종가 대비 1봉전 고가의 상승률이 target_pct 이하일 것
+            if (self.data.high[-1] / self.data.close[-2] - 1) > self.p.target_pct:
+                return
+
+            # [추가 조건 2] 3봉전 종가 대비 2봉전 고가의 상승률이 target_pct 이하일 것
+            if (self.data.high[-2] / self.data.close[-3] - 1) > self.p.target_pct:
                 return
 
             # B. 유동성 확인 (전일 거래대금)
             trade_amount = self.data.close[-1] * self.data.volume[-1]
-            if trade_amount < 5000000000:  # 50억
+            if trade_amount < 50000000000:  # 50억
                 return
 
             # [수정] C. 정배열 확인 (전일 기준 필터 삭제)
@@ -303,7 +312,7 @@ def run_single_backtest(file_path, target_pct, bandwidth_min, bandwidth_max, is_
                 return None
 
         # [추가] 검색기간 필터: 2025년 1월 1일 이후 데이터만 사용
-        df = df[df.index >= '2025-01-01']
+        df = df[df.index >= '2015-01-01']
 
         # [수정] 숫자형 변환 (콤마 제거 포함)
         cols_to_numeric = ['Close', 'Open', 'High', 'Low', 'Volume']
@@ -363,7 +372,7 @@ def main():
     print("📌 기간: 2025-01-01 ~ 현재")
 
     # [수정] 데이터 경로 변경 (stock_data_100)
-    data_dir = "stock_data_500"
+    data_dir = ("stock_data_kospi200")
     if not os.path.exists(data_dir):
         print(f"🚨 '{data_dir}' 폴더가 없습니다!")
         return
