@@ -481,9 +481,10 @@ class Kiwoom(QMainWindow):
             for c in conditions:
                 idx, name = c.split('^')
                 if name in [self.BUY_STRATEGY_NAME, self.SELL_STRATEGY_NAME]:
-                    print(f"[{name}] 초기 검색 요청...")
+                    print(f"[{name}] 초기 검색 및 실시간 감시 요청...")
+                    # [수정] 옵션을 0(1회성)에서 1(실시간)로 변경하여 처음부터 실시간 감시를 확실히 켬
                     self.kiwoom.dynamicCall("SendCondition(QString, QString, int, int)",
-                                            "0156" if "매수" in name else "0157", name, int(idx), 0)
+                                            "0156" if "매수" in name else "0157", name, int(idx), 1)
                     self._safe_delay(1500)
 
     def _handler_condition(self, scr_no, code_list, cond_name, cond_index, next):
@@ -505,8 +506,7 @@ class Kiwoom(QMainWindow):
                 self.current_conditioned_stocks.add(code)
                 self.job_queue.append({'type': 'BUY', 'code': code})
 
-        print(f"[시스템] {cond_name} 실시간 감시 전환")
-        self.kiwoom.dynamicCall("SendCondition(QString, QString, int, int)", scr_no, cond_name, int(cond_index), 1)
+        # [수정] 통신이 차단되는 원인이었던 중복 실시간 전환 요청(SendCondition) 코드 삭제 완료
 
     def _handler_real_condition(self, code, type, cond_name, cond_index):
         if type == 'I':
