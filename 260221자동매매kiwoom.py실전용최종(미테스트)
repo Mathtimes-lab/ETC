@@ -481,7 +481,7 @@ class Kiwoom(QMainWindow):
             return
 
         # [주문 선(先) 실행] 계산 지연으로 인한 수익률 하락 방지
-        print(f"[{now}] 🚀 [자동매수] {stock_name}({code}) 즉시 시장가 주문 발송!")
+        print(f"[{now}] 🚀 [자동매수] {stock_name}({code}) {quantity}주 즉시 시장가 주문 발송!")
         self.buy_meta_data[code] = {'target_raw': 0, 'time': now}  # 목표가는 임시 0 세팅
         self._send_order(code, 1, quantity, 0)
 
