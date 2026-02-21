@@ -1,6 +1,7 @@
 import sys
 import time
 import os
+import math
 import pandas as pd  # 데이터 저장/수정용
 import numpy as np  # 날짜 계산용
 from datetime import datetime
@@ -248,6 +249,57 @@ class Kiwoom(QMainWindow):
         except Exception as e:
             print(f"[오류] 매도 기록 업데이트 실패: {e}")
 
+    def _update_csv_target_price(self, code, target_price, order_type):
+        """사후에 계산된 백테스트 목표가를 엑셀에 업데이트하는 로직 (주문 지연 방지용)"""
+        if not os.path.exists(self.CSV_FILE_NAME): return
+        try:
+            df = pd.read_csv(self.CSV_FILE_NAME, dtype={'종목코드': str})
+            df['종목코드_순수'] = df['종목코드'].astype(str).str.replace("'", "").str.zfill(6)
+
+            if order_type == 'BUY':
+                # 매도일이 비어있는(현재 진행중인) 해당 종목의 매수목표가 업데이트
+                mask = (df['종목코드_순수'] == code) & (df['매도일'].isna() | (df['매도일'] == ''))
+                if not df.loc[mask].empty:
+                    idx = df.loc[mask].index[-1]
+                    df.loc[idx, '매수목표가'] = int(target_price)
+
+                    buy_price = float(df.loc[idx, '실제매입가'])
+                    if target_price > 0:
+                        df.loc[idx, '매수슬리피지(%)'] = round(((buy_price - target_price) / target_price) * 100, 2)
+
+                    df = df.drop(columns=['종목코드_순수'])
+                    df.to_csv(self.CSV_FILE_NAME, index=False, encoding='utf-8-sig')
+
+            elif order_type == 'SELL':
+                # 매도일이 적혀있는 가장 최근 행의 매도목표가 업데이트
+                mask = (df['종목코드_순수'] == code)
+                if not df.loc[mask].empty:
+                    idx = df.loc[mask].index[-1]
+                    df.loc[idx, '매도목표가'] = int(target_price)
+
+                    actual_sell = float(df.loc[idx, '실제매도가'])
+                    if target_price > 0:
+                        sell_slip = ((target_price - actual_sell) / target_price) * 100
+                        df.loc[idx, '매도슬리피지(%)'] = round(sell_slip, 2)
+
+                        try:
+                            buy_slip = float(df.loc[idx, '매수슬리피지(%)'])
+                        except:
+                            buy_slip = 0.0
+                        df.loc[idx, '합산슬리피지(%)'] = round(buy_slip + sell_slip, 2)
+
+                        try:
+                            buy_target = float(df.loc[idx, '매수목표가'])
+                        except:
+                            buy_target = float(df.loc[idx, '실제매입가'])
+                        if buy_target > 0:
+                            df.loc[idx, '테스트수익률(%)'] = round(((target_price - buy_target) / buy_target) * 100, 2)
+
+                    df = df.drop(columns=['종목코드_순수'])
+                    df.to_csv(self.CSV_FILE_NAME, index=False, encoding='utf-8-sig')
+        except Exception as e:
+            pass
+
     # -------------------------------------
     # 초기화 체인
     # -------------------------------------
@@ -268,13 +320,15 @@ class Kiwoom(QMainWindow):
         self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "잔고요청", "opw00018", 0, "0103")
 
     def _get_stock_info(self, code):
-        """TR요청(opt10001)으로 시가, 전일종가 확인 (Sync)"""
+        """TR요청(opt10081)으로 당일 시가 및 과거 일봉(4일치) 데이터 확인 (Sync)"""
         self.tr_data_temp = {}
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
-        res = self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "주식기본정보요청", "opt10001", 0, "0104")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "기준일자", "")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
+        res = self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "주식일봉기본요청", "opt10081", 0, "0104")
 
         if res != 0:
-            print(f"[시스템] 서버 과부하로 주식기본정보요청(opt10001) 차단됨 (에러코드: {res})")
+            print(f"[시스템] 서버 과부하로 주식일봉기본요청(opt10081) 차단됨 (에러코드: {res})")
             return self.tr_data_temp
 
         self.tr_event_loop = QEventLoop()
@@ -321,11 +375,13 @@ class Kiwoom(QMainWindow):
 
                 if qty > 0:
                     target_raw = 0
-                    buy_date = '2026-02-19'
-                    buy_time = '09:00:00'
+                    buy_date = ''
+                    buy_time = ''
                     csv_buy_price = price
                     csv_slippage = 0.0
+                    is_restored_from_csv = False
 
+                    # [수정] 1. 엑셀 파일이 존재하면 무조건 엑셀에 적힌 원본 매수일/목표가를 그대로 신뢰하고 가져옴
                     if not history_df.empty:
                         mask = (history_df['종목코드'] == code) & (history_df['매도일'].isna() | (history_df['매도일'] == ''))
                         if not history_df.loc[mask].empty:
@@ -336,17 +392,18 @@ class Kiwoom(QMainWindow):
                                 buy_time = str(history_df.loc[last_idx, '매수시간'])
                                 csv_buy_price = float(history_df.loc[last_idx, '실제매입가'])
                                 csv_slippage = float(history_df.loc[last_idx, '매수슬리피지(%)'])
+                                is_restored_from_csv = True
                             except Exception:
                                 pass
 
-                    if target_raw == 0:
-                        prev_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
-                        prev_price = abs(int(prev_price_str)) if prev_price_str else 0
-                        target_raw = int(prev_price * 1.05) if prev_price > 0 else price
-                        if target_raw > 0:
-                            csv_slippage = ((price - target_raw) / target_raw) * 100
+                    # [수정] 2. 엑셀에 데이터가 아예 없는 종목의 경우 (예: 수동 매수, 타 프로그램 매수 등)
+                    # 오늘 가격을 바탕으로 목표가를 억지로 계산하지 않고, 매입가 = 목표가로 통일시켜 통계 왜곡을 원천 차단함
+                    if not is_restored_from_csv:
+                        target_raw = price
+                        csv_slippage = 0.0
+                        buy_date = '수동매수(기록없음)'
+                        buy_time = '00:00:00'
 
-                        # [수정] 엑셀에 누락된 잔고 종목을 자동으로 엑셀에 복구(기입)해주는 로직 부활
                         stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
                         self._log_buy_trade(code, stock_name, buy_date, buy_time, target_raw, price, csv_slippage)
 
@@ -361,22 +418,33 @@ class Kiwoom(QMainWindow):
             self._print_slippage_report()
             QTimer.singleShot(200, self._get_condition_load)
 
-        elif rqname == "주식기본정보요청":
-            open_price = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, 0,
-                                                 "시가").strip()
-            prev_close = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, 0,
-                                                 "기준가").strip()
+        elif rqname == "주식일봉기본요청":
+            cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
 
-            try:
+            op = 0
+            pc = 0
+            c_list = []
+
+            if cnt > 0:
+                open_price = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, 0,
+                                                     "시가").strip()
                 op = abs(int(open_price)) if open_price else 0
-                pc = abs(int(prev_close)) if prev_close else 0
-            except ValueError:
-                op = 0
-                pc = 0
+
+                if cnt > 1:
+                    prev_close = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname,
+                                                         1, "현재가").strip()
+                    pc = abs(int(prev_close)) if prev_close else 0
+
+                # 전일(1)부터 4일전(4)까지 일봉 종가 수집 (정배열 전환가 계산용)
+                for i in range(1, min(cnt, 5)):
+                    close_price = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname,
+                                                          i, "현재가").strip()
+                    c_list.append(abs(int(close_price)) if close_price else 0)
 
             self.tr_data_temp = {
                 'open': op,
-                'prev': pc
+                'prev': pc,
+                'c_list': c_list
             }
             if hasattr(self, 'tr_event_loop') and self.tr_event_loop.isRunning():
                 self.tr_event_loop.quit()
@@ -399,43 +467,56 @@ class Kiwoom(QMainWindow):
         if code in self.bought_today:
             return
 
-        # TR 요청으로 시가, 전일종가 획득
-        try:
-            info = self._get_stock_info(code)
-            open_price = info.get('open', 0)
+        # 1. 지연 없는 즉시 주문을 위해 서버 통신 없이 '현재가' 바로 메모리 조회 (0초 소요)
+        current_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
+        current_price = abs(int(current_price_str)) if current_price_str else 0
 
-            prev_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
-            prev_price = abs(int(prev_price_str)) if prev_price_str else info.get('prev', 0)
-
-        except Exception as e:
-            print(f"[{now}] [오류] 가격정보 조회 실패: {code} ({e})")
+        if current_price == 0:
+            print(f"[{now}] [매수불가] {stock_name}({code}) - 현재가 조회 불가")
             return
 
-        if prev_price == 0:
-            print(f"[{now}] [매수스킵] {stock_name}({code}) - 가격정보(시가/전일종가) 조회 불가")
-            return
-
-        # 목표가 계산 로직: MAX(전일종가 * 1.05, 당일 시가)
-        raw_target_price = max(prev_price * 1.05, float(open_price))
-        target_raw_int = int(raw_target_price)
-
-        target_price = self._adjust_price_to_tick(raw_target_price)
-
-        quantity = self.MAX_BUY_AMOUNT // target_price
-
+        quantity = self.MAX_BUY_AMOUNT // current_price
         if quantity == 0:
             print(f"[{now}] [매수불가] {stock_name}({code}) - 단가 초과")
             return
 
-        print(f"[{now}] [자동매수] {stock_name}({code})")
-        print(f"  > 전일종가: {prev_price:,}원, 시가: {open_price:,}원")
-        print(f"  > 목표가(Max): {target_raw_int:,}원 -> 주문가: {target_price:,}원")
-        print(f"  > 주문수량: {quantity}주")
-
-        self.buy_meta_data[code] = {'target_raw': target_raw_int, 'time': now}
-        self._send_order(code, 1, quantity, target_price)
+        # [주문 선(先) 실행] 계산 지연으로 인한 수익률 하락 방지
+        print(f"[{now}] 🚀 [자동매수] {stock_name}({code}) 즉시 시장가 주문 발송!")
+        self.buy_meta_data[code] = {'target_raw': 0, 'time': now}  # 목표가는 임시 0 세팅
+        self._send_order(code, 1, quantity, 0)
 
         if code not in self.bought_today: self.bought_today.append(code)
+
+        # 2. 주문이 서버로 날아간 후 여유롭게 백테스트 목표가 계산 (0.2~0.5초 소요)
+        try:
+            info = self._get_stock_info(code)
+            open_price = info.get('open', current_price)
+            prev_price = info.get('prev', current_price)
+            c_list = info.get('c_list', [])
+
+            target_price = math.ceil(prev_price * 1.05)
+            golden_cross_price = 0
+            if len(c_list) >= 4:
+                c_1, c_2, c_3, c_4 = c_list[0], c_list[1], c_list[2], c_list[3]
+                golden_cross_price = math.ceil(1.5 * (c_3 + c_4) - (c_1 + c_2))
+
+            buy_req_price = max(target_price, golden_cross_price)
+            target_raw_int = int(open_price) if open_price > buy_req_price else int(buy_req_price)
+
+            # 3. 사후 엑셀 및 메모리 업데이트
+            self.buy_meta_data[code]['target_raw'] = target_raw_int
+            print(f"  > (사후기록) 백테스트 매수목표가 산출 완료: {target_raw_int:,}원 (엑셀 자동 반영)")
+
+            self._update_csv_target_price(code, target_raw_int, 'BUY')
+
+            if code in self.held_stocks:
+                self.held_stocks[code]['target_raw'] = target_raw_int
+                if target_raw_int > 0:
+                    buy_price = self.held_stocks[code]['csv_buy_price']
+                    self.held_stocks[code]['csv_slippage'] = ((buy_price - target_raw_int) / target_raw_int) * 100
+
+        except Exception as e:
+            print(f"[{now}] [오류] 가격정보 사후 조회 실패: {code} ({e})")
 
     def _execute_sell(self, code):
         now = datetime.now().strftime('%H:%M:%S')
@@ -448,13 +529,35 @@ class Kiwoom(QMainWindow):
         if code in self.held_stocks and self.held_stocks[code]['qty'] > 0:
             quantity = self.held_stocks[code]['qty']
 
-            # [기록 로직 추가] 매도 조건이 포착된 '순간'의 현재가를 가져와 '테스트 매도목표가'로 기록
-            current_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
-            sell_target_price = abs(int(current_price_str)) if current_price_str else 0
-            self.held_stocks[code]['sell_target_price'] = sell_target_price
-
-            print(f"[{now}] [자동매도] {stock_name} {quantity}주 시장가 매도 (매도목표가: {sell_target_price:,}원)")
+            # 1. 지연시간 0초로 묻지도 따지지도 않고 즉시 시장가 매도 발송
+            print(f"[{now}] 🚀 [자동매도] {stock_name} {quantity}주 즉시 시장가 매도 발송!")
             self._send_order(code, 2, quantity, 0)
+
+            # 2. 주문이 서버로 날아간 후 여유롭게 엑셀 기록용 백테스트 매도목표가 계산
+            info = self._get_stock_info(code)
+            c_list = info.get('c_list', [])
+            open_price = info.get('open', 0)
+
+            sell_target_price = 0
+            if len(c_list) >= 4:
+                c_1, c_2, c_3, c_4 = c_list[0], c_list[1], c_list[2], c_list[3]
+                cross_price = round(1.5 * (c_3 + c_4) - (c_1 + c_2))
+
+                if 0 < open_price < cross_price:
+                    sell_target_price = open_price
+                else:
+                    sell_target_price = cross_price
+
+            if sell_target_price == 0:
+                current_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
+                sell_target_price = abs(int(current_price_str)) if current_price_str else 0
+
+            self.held_stocks[code]['sell_target_price'] = sell_target_price
+            print(f"  > (사후기록) 백테스트 매도목표가 산출 완료: {sell_target_price:,}원 (엑셀 자동 반영)")
+
+            # 3. 사후 엑셀 업데이트
+            self._update_csv_target_price(code, sell_target_price, 'SELL')
+
         else:
             print(f"[{now}] [매도불가] {stock_name} - 잔고 없음")
 
