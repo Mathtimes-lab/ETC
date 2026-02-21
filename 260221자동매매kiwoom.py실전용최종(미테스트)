@@ -16,7 +16,7 @@ class Kiwoom(QMainWindow):
         # --- [설정 구간] ---
         self.BUY_STRATEGY_NAME = "260218급등기본"
         self.SELL_STRATEGY_NAME = "260218매도식"
-        self.CSV_FILE_NAME = "trade_history.csv"  # 저장할 파일명
+        self.CSV_FILE_NAME = "trade_history(real).csv"  # 저장할 파일명
 
         # [추가] 매수/매도 금액 및 호가 설정
         self.MAX_BUY_AMOUNT = 500000  # 1회 최대 매수 금액 (원)
@@ -88,6 +88,28 @@ class Kiwoom(QMainWindow):
         loop.exec_()
 
     # -------------------------------------
+    # [유틸] 엑셀 컬럼 하위 호환성 유지 및 마이그레이션
+    # -------------------------------------
+    def _migrate_history_columns(self, df):
+        rename_map = {
+            '5%상승가(보정X)': '매수목표가',
+            '목표가(보정X)': '매수목표가',
+            '슬리피지(%)': '매수슬리피지(%)',
+            '매도가격': '실제매도가',
+            '수익률(%)': '실제수익률(%)'
+        }
+        for old, new in rename_map.items():
+            if old in df.columns:
+                df = df.rename(columns={old: new})
+
+        # 신규 컬럼이 없으면 빈 문자열로 추가
+        for col in ['매도목표가', '매도슬리피지(%)', '합산슬리피지(%)', '테스트수익률(%)']:
+            if col not in df.columns:
+                df[col] = ''
+
+        return df
+
+    # -------------------------------------
     # [유틸] 호가 단위 계산
     # -------------------------------------
     def _get_hoga_unit(self, price):
@@ -118,10 +140,7 @@ class Kiwoom(QMainWindow):
         if os.path.exists(self.CSV_FILE_NAME):
             try:
                 df_exist = pd.read_csv(self.CSV_FILE_NAME, dtype={'종목코드': str})
-
-                # [수정] 기존 파일의 헷갈리는 컬럼명을 '목표가(보정X)'로 자동 치환 (하위 호환성)
-                if '5%상승가(보정X)' in df_exist.columns:
-                    df_exist = df_exist.rename(columns={'5%상승가(보정X)': '목표가(보정X)'})
+                df_exist = self._migrate_history_columns(df_exist)
 
                 df_exist['종목코드'] = df_exist['종목코드'].astype(str).str.replace("'", "").str.zfill(6)
                 is_duplicate = not df_exist[
@@ -134,20 +153,23 @@ class Kiwoom(QMainWindow):
             except Exception:
                 pass
 
-        # [수정] 헷갈리는 컬럼명을 '목표가(보정X)'로 직관적으로 변경
         new_data = {
             '종목코드': f"'{code}",
             '종목명': stock_name,
             '매수일': buy_date,
             '매수시간': buy_time,
-            '목표가(보정X)': int(target_raw),
+            '매수목표가': int(target_raw),
             '실제매입가': buy_price,
-            '슬리피지(%)': round(slippage, 2),
+            '매수슬리피지(%)': round(slippage, 2),
             '매도일': '',
             '매도시간': '',
-            '매도가격': '',
-            '보유기간(일)': '',
-            '수익률(%)': ''
+            '매도목표가': '',
+            '실제매도가': '',
+            '매도슬리피지(%)': '',
+            '합산슬리피지(%)': '',
+            '테스트수익률(%)': '',
+            '실제수익률(%)': '',
+            '보유기간(일)': ''
         }
 
         try:
@@ -160,7 +182,7 @@ class Kiwoom(QMainWindow):
         except Exception as e:
             print(f"[오류] 매수 기록 저장 실패: {e}")
 
-    def _log_sell_trade(self, code, stock_name, sell_date, sell_time, sell_price):
+    def _log_sell_trade(self, code, stock_name, sell_date, sell_time, sell_target_price, actual_sell_price):
         """매도 체결 시: 기존 행을 찾아 매도 정보 업데이트"""
         if not os.path.exists(self.CSV_FILE_NAME):
             print(f"[오류] 매매 기록 파일이 없어 매도 업데이트 실패: {stock_name}")
@@ -168,17 +190,30 @@ class Kiwoom(QMainWindow):
 
         try:
             df = pd.read_csv(self.CSV_FILE_NAME, dtype={'종목코드': str})
-
-            # [수정] 기존 파일 읽을 때 컬럼명 강제 치환 (하위 호환성)
-            if '5%상승가(보정X)' in df.columns:
-                df = df.rename(columns={'5%상승가(보정X)': '목표가(보정X)'})
+            df = self._migrate_history_columns(df)
 
             df['종목코드_순수'] = df['종목코드'].astype(str).str.replace("'", "").str.zfill(6)
             mask = (df['종목코드_순수'] == code) & (df['매도일'].isna() | (df['매도일'] == ''))
 
             if not df.loc[mask].empty:
                 idx = df.loc[mask].index[-1]
-                buy_price = float(df.loc[idx, '실제매입가'])
+
+                # 기존 데이터 추출 (에러 방지용 예외처리)
+                try:
+                    buy_target = float(df.loc[idx, '매수목표가'])
+                except:
+                    buy_target = float(df.loc[idx, '실제매입가'])
+
+                try:
+                    buy_price = float(df.loc[idx, '실제매입가'])
+                except:
+                    buy_price = 0.0
+
+                try:
+                    buy_slippage = float(df.loc[idx, '매수슬리피지(%)'])
+                except:
+                    buy_slippage = 0.0
+
                 buy_date = str(df.loc[idx, '매수일'])
 
                 try:
@@ -186,17 +221,27 @@ class Kiwoom(QMainWindow):
                 except:
                     hold_days = 0
 
-                return_rate = ((sell_price - buy_price) / buy_price) * 100
+                # 슬리피지 및 수익률 계산 로직
+                sell_slippage = ((
+                                             sell_target_price - actual_sell_price) / sell_target_price * 100) if sell_target_price > 0 else 0.0
+                total_slippage = buy_slippage + sell_slippage
+
+                test_return = ((sell_target_price - buy_target) / buy_target * 100) if buy_target > 0 else 0.0
+                actual_return = ((actual_sell_price - buy_price) / buy_price * 100) if buy_price > 0 else 0.0
 
                 df.loc[idx, '매도일'] = sell_date
                 df.loc[idx, '매도시간'] = sell_time
-                df.loc[idx, '매도가격'] = sell_price
+                df.loc[idx, '매도목표가'] = int(sell_target_price)
+                df.loc[idx, '실제매도가'] = int(actual_sell_price)
+                df.loc[idx, '매도슬리피지(%)'] = round(sell_slippage, 2)
+                df.loc[idx, '합산슬리피지(%)'] = round(total_slippage, 2)
+                df.loc[idx, '테스트수익률(%)'] = round(test_return, 2)
+                df.loc[idx, '실제수익률(%)'] = round(actual_return, 2)
                 df.loc[idx, '보유기간(일)'] = hold_days
-                df.loc[idx, '수익률(%)'] = round(return_rate, 2)
 
                 df = df.drop(columns=['종목코드_순수'])
                 df.to_csv(self.CSV_FILE_NAME, index=False, encoding='utf-8-sig')
-                print(f"[기록] 매도 이력 업데이트 완료: {stock_name} (수익률: {return_rate:.2f}%)")
+                print(f"[기록] 매도 이력 업데이트 완료: {stock_name} (실제수익률: {actual_return:.2f}%)")
             else:
                 print(f"[알림] '{stock_name}'의 매수 기록을 찾을 수 없어 매도 기록만 별도로 남길 수 없습니다.")
 
@@ -258,11 +303,7 @@ class Kiwoom(QMainWindow):
             if os.path.exists(self.CSV_FILE_NAME):
                 try:
                     history_df = pd.read_csv(self.CSV_FILE_NAME, dtype={'종목코드': str})
-
-                    # [수정] 엑셀 로딩 시 컬럼명 강제 치환 (하위 호환성)
-                    if '5%상승가(보정X)' in history_df.columns:
-                        history_df = history_df.rename(columns={'5%상승가(보정X)': '목표가(보정X)'})
-
+                    history_df = self._migrate_history_columns(history_df)
                     history_df['종목코드'] = history_df['종목코드'].astype(str).str.replace("'", "").str.zfill(6)
                 except Exception:
                     pass
@@ -290,12 +331,11 @@ class Kiwoom(QMainWindow):
                         if not history_df.loc[mask].empty:
                             last_idx = history_df.loc[mask].index[-1]
                             try:
-                                # [수정] 변경된 컬럼명으로 데이터 로드
-                                target_raw = int(history_df.loc[last_idx, '목표가(보정X)'])
+                                target_raw = int(history_df.loc[last_idx, '매수목표가'])
                                 buy_date = str(history_df.loc[last_idx, '매수일'])
                                 buy_time = str(history_df.loc[last_idx, '매수시간'])
                                 csv_buy_price = float(history_df.loc[last_idx, '실제매입가'])
-                                csv_slippage = float(history_df.loc[last_idx, '슬리피지(%)'])
+                                csv_slippage = float(history_df.loc[last_idx, '매수슬리피지(%)'])
                             except Exception:
                                 pass
 
@@ -407,7 +447,13 @@ class Kiwoom(QMainWindow):
 
         if code in self.held_stocks and self.held_stocks[code]['qty'] > 0:
             quantity = self.held_stocks[code]['qty']
-            print(f"[{now}] [자동매도] {stock_name} {quantity}주 시장가 매도")
+
+            # [기록 로직 추가] 매도 조건이 포착된 '순간'의 현재가를 가져와 '테스트 매도목표가'로 기록
+            current_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
+            sell_target_price = abs(int(current_price_str)) if current_price_str else 0
+            self.held_stocks[code]['sell_target_price'] = sell_target_price
+
+            print(f"[{now}] [자동매도] {stock_name} {quantity}주 시장가 매도 (매도목표가: {sell_target_price:,}원)")
             self._send_order(code, 2, quantity, 0)
         else:
             print(f"[{now}] [매도불가] {stock_name} - 잔고 없음")
@@ -578,12 +624,20 @@ class Kiwoom(QMainWindow):
                         }
 
             elif "매도" in order_type and status == "체결":
-                sell_price = int(self.kiwoom.dynamicCall("GetChejanData(int)", 910))
+                actual_sell_price = int(self.kiwoom.dynamicCall("GetChejanData(int)", 910))
                 stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
                 today = datetime.now().strftime('%Y-%m-%d')
                 now_time = datetime.now().strftime('%H:%M:%S')
 
-                self._log_sell_trade(code, stock_name, today, now_time, sell_price)
+                sell_target_price = 0
+                if code in self.held_stocks and 'sell_target_price' in self.held_stocks[code]:
+                    sell_target_price = self.held_stocks[code]['sell_target_price']
+
+                # 오류 방지: 데이터를 불러오지 못한 경우 체결가와 동일하게 보정
+                if sell_target_price == 0:
+                    sell_target_price = actual_sell_price
+
+                self._log_sell_trade(code, stock_name, today, now_time, sell_target_price, actual_sell_price)
 
             print(f"[체결알림] {code} | {status} | {order_no}")
 
