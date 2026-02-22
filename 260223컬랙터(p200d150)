@@ -1,0 +1,261 @@
+import sys
+import os
+import time
+import pandas as pd
+from datetime import datetime, timedelta
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QAxContainer import QAxWidget
+from PyQt5.QtCore import QEventLoop
+
+
+class KiwoomDownloader(QAxWidget):
+    def __init__(self):
+        super().__init__()
+        self._create_kiwoom_instance()
+        self._set_signal_slots()
+        self._login()
+
+        self.remained_data = False
+        self.ohlcv_data = []
+        self.screen_no = "0101"
+
+    def _create_kiwoom_instance(self):
+        self.setControl("KHOPENAPI.KHOpenAPICtrl.1")
+
+    def _set_signal_slots(self):
+        self.OnEventConnect.connect(self._on_event_connect)
+        self.OnReceiveTrData.connect(self._on_receive_tr_data)
+
+    def _login(self):
+        self.login_event_loop = QEventLoop()
+        self.dynamicCall("CommConnect()")
+        self.login_event_loop.exec_()
+
+    def _on_event_connect(self, err_code):
+        if err_code == 0:
+            print("✅ 키움 API 로그인 성공")
+        else:
+            print(f"❌ 로그인 실패 (에러코드: {err_code})")
+        self.login_event_loop.exit()
+
+    def get_stock_name(self, code):
+        return self.dynamicCall("GetMasterCodeName(QString)", [code]).strip()
+
+    def get_kospi_code_list(self):
+        return self.dynamicCall("GetCodeListByMarket(QString)", ["0"]).split(';')[:-1]
+
+    def get_kosdaq_code_list(self):
+        return self.dynamicCall("GetCodeListByMarket(QString)", ["10"]).split(';')[:-1]
+
+    def get_stock_state(self, code):
+        """종목 상태(KOSPI200 등)를 반환하는 로컬 함수"""
+        return self.dynamicCall("GetMasterStockState(QString)", [code])
+
+    def get_index_constituents_local(self, market_type):
+        """
+        [핵심 수정] TR 통신 대신 로컬 PC의 마스터 정보를 활용해 지수 구성종목을 가져옵니다.
+        장 운영 시간, 주말 여부와 관계없이 24시간 정상 작동합니다.
+        """
+        target_codes = []
+        if market_type == "KOSPI200":
+            codes = self.get_kospi_code_list()
+            for code in codes:
+                state = self.get_stock_state(code).upper()
+                if "KOSPI200" in state or "코스피200" in state:
+                    target_codes.append(code)
+                    
+        elif market_type == "KOSDAQ150":
+            codes = self.get_kosdaq_code_list()
+            for code in codes:
+                state = self.get_stock_state(code).upper()
+                if "KOSDAQ150" in state or "코스닥150" in state:
+                    target_codes.append(code)
+                    
+        return target_codes
+
+    def get_listed_shares(self, code):
+        shares = self.dynamicCall("GetMasterListedStockCnt(QString)", [code])
+        return int(shares) if shares else 0
+
+    def get_master_last_price(self, code):
+        price = self.dynamicCall("GetMasterLastPrice(QString)", [code])
+        return int(price) if price else 0
+
+    def check_filter(self, code, name):
+        exclude_keywords = ["스팩", "ETN", "ETF", "리츠", "전환사채", "신주인수권"]
+        if any(keyword in name for keyword in exclude_keywords):
+            return False
+        state = self.get_stock_state(code)
+        if "관리종목" in state or "거래정지" in state or "정리매매" in state:
+            return False
+        return True
+
+    def request_daily_chart(self, code, date):
+        self.ohlcv_data = []
+        self.remained_data = True
+        next_val = 0
+
+        target_date_str = "20250101"
+        target_date = datetime.strptime(target_date_str, "%Y%m%d")
+
+        while self.remained_data:
+            self.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
+            self.dynamicCall("SetInputValue(QString, QString)", "기준일자", date)
+            self.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
+            self._comm_rq_data("opt10081", "주식일봉차트조회", next_val, self.screen_no)
+
+            if self.ohlcv_data:
+                last_date_str = self.ohlcv_data[-1][0]
+                if last_date_str:
+                    last_date_dt = datetime.strptime(last_date_str, "%Y%m%d")
+                    if last_date_dt <= target_date:
+                        break
+
+            if self.remained_data:
+                next_val = 2
+                time.sleep(0.5)
+
+        if not self.ohlcv_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(self.ohlcv_data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+        df['Date'] = pd.to_datetime(df['Date'])
+        df = df.sort_values(by='Date').reset_index(drop=True)
+        df = df[df['Date'] >= '2025-01-01']
+
+        return df
+
+    def _comm_rq_data(self, trcode, rqname, next_val, screen_no):
+        self.tr_event_loop = QEventLoop()
+        ret = self.dynamicCall("CommRqData(QString, QString, int, QString)", rqname, trcode, next_val, screen_no)
+        if ret != 0:
+            print(f"\n❌ TR 요청 실패 ({rqname}) - 에러코드: {ret}")
+            self.remained_data = False
+            return
+        self.tr_event_loop.exec_()
+
+    def _get_comm_data_int(self, trcode, rqname, index, item_name):
+        """빈 문자열이 반환될 경우의 ValueError를 방지하는 안전한 정수 변환 헬퍼 함수"""
+        val = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, index, item_name).strip()
+        try:
+            return abs(int(val)) if val else 0
+        except ValueError:
+            return 0
+
+    def _on_receive_tr_data(self, screen_no, rqname, trcode, record_name, next_val, unused1, unused2, unused3, unused4):
+        # 연속조회(다음 페이지) 데이터 유무 플래그 업데이트
+        self.remained_data = (next_val == '2')
+        count = self.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+
+        for i in range(count):
+            date = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i, "일자").strip()
+            open_ = self._get_comm_data_int(trcode, rqname, i, "시가")
+            high = self._get_comm_data_int(trcode, rqname, i, "고가")
+            low = self._get_comm_data_int(trcode, rqname, i, "저가")
+            close = self._get_comm_data_int(trcode, rqname, i, "현재가")
+            volume = self._get_comm_data_int(trcode, rqname, i, "거래량")
+
+            self.ohlcv_data.append([date, open_, high, low, close, volume])
+
+        self.tr_event_loop.exit()
+
+
+def main():
+    app = QApplication(sys.argv)
+
+    print("🚀 키움증권 API 인스턴스 생성 중...")
+    kiwoom = KiwoomDownloader()
+
+    save_dir = "stock_data_p200d150"
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    print("⏳ KOSPI 및 KOSDAQ 종목 정보 로딩 중 (잠시만 기다려주세요)...")
+
+    # 1. KOSPI 200 (로컬 데이터 기반)
+    print("📊 KOSPI 200 구성종목 추출 중 (주말/야간 접속 무관)...")
+    kospi200_raw = kiwoom.get_index_constituents_local("KOSPI200")
+    
+    # 만일의 경우 태그 오류로 0건이 반환될 경우를 대비한 100% 안전 장치 (동일하게 로컬 정보 사용)
+    if len(kospi200_raw) < 100:
+        print("⚠️ HTS 태그 감지 실패. 대안으로 시가총액 상위 200종목으로 즉시 대체합니다.")
+        temp_list = []
+        for code in kiwoom.get_kospi_code_list():
+            if kiwoom.check_filter(code, kiwoom.get_stock_name(code)):
+                mc = kiwoom.get_listed_shares(code) * kiwoom.get_master_last_price(code)
+                temp_list.append({'code': code, 'mc': mc})
+        kospi200_raw = [x['code'] for x in sorted(temp_list, key=lambda x: x['mc'], reverse=True)[:200]]
+
+    kospi_valid = []
+    for code in kospi200_raw:
+        code = ''.join(filter(str.isdigit, code))[-6:]
+        if not code: continue
+        name = kiwoom.get_stock_name(code)
+        if kiwoom.check_filter(code, name):
+            kospi_valid.append({'code': code, 'name': name, 'market': 'KOSPI200'})
+            
+    top_200_kospi = kospi_valid[:200]
+
+    # 2. KOSDAQ 150 (로컬 데이터 기반)
+    print("📊 KOSDAQ 150 구성종목 추출 중 (주말/야간 접속 무관)...")
+    kosdaq150_raw = kiwoom.get_index_constituents_local("KOSDAQ150")
+    
+    # 코스닥은 종종 태그가 누락되는 경우가 있어 완벽한 다운로드를 위한 안전 장치 마련
+    if len(kosdaq150_raw) < 50:
+        print("⚠️ HTS KOSDAQ 150 태그 감지 실패. 대안으로 시가총액 상위 150종목으로 즉시 대체합니다.")
+        temp_list = []
+        for code in kiwoom.get_kosdaq_code_list():
+            if kiwoom.check_filter(code, kiwoom.get_stock_name(code)):
+                mc = kiwoom.get_listed_shares(code) * kiwoom.get_master_last_price(code)
+                temp_list.append({'code': code, 'mc': mc})
+        kosdaq150_raw = [x['code'] for x in sorted(temp_list, key=lambda x: x['mc'], reverse=True)[:150]]
+
+    kosdaq_valid = []
+    for code in kosdaq150_raw:
+        code = ''.join(filter(str.isdigit, code))[-6:]
+        if not code: continue
+        name = kiwoom.get_stock_name(code)
+        if kiwoom.check_filter(code, name):
+            kosdaq_valid.append({'code': code, 'name': name, 'market': 'KOSDAQ150'})
+
+    top_150_kosdaq = kosdaq_valid[:150]
+
+    # 대상 종목을 코스피 200 + 코스닥 150 (총 350개)로 설정
+    final_targets = [(item['code'], item['name'], item['market']) for item in (top_200_kospi + top_150_kosdaq)]
+
+    print(f"✅ HTS 기준 종목 (총 {len(final_targets)}종목) 준비 완료")
+    
+    if len(final_targets) == 0:
+        print("❌ 타겟 종목을 하나도 불러오지 못했습니다.")
+        sys.exit()
+
+    print("🚀 다운로드 시작 (2025년 1월 1일 이후 데이터만)...")
+
+    today_str = datetime.now().strftime("%Y%m%d")
+    total = len(final_targets)
+
+    for idx, (code, name, market) in enumerate(final_targets):
+        print(f"[{idx + 1}/{total}] [{market}] {name} ({code}) 요청 중...", end=" ", flush=True)
+
+        try:
+            df = kiwoom.request_daily_chart(code, today_str)
+
+            if not df.empty:
+                safe_name = name.replace("/", "_").replace("*", "").replace(":", "")
+                file_path = os.path.join(save_dir, f"{code}_{safe_name}.xlsx")
+                df.to_excel(file_path, index=False)
+                print(f"완료 ({len(df)}건)")
+            else:
+                print("데이터 없음")
+
+            time.sleep(0.5) # TR 초당 요청 횟수 제한 방어
+
+        except Exception as e:
+            print(f"실패 ({e})")
+
+    print(f"\n🎉 '{save_dir}' 폴더에 총 {total}개 종목 다운로드가 완료되었습니다!")
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()
