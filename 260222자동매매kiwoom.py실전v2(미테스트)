@@ -410,6 +410,11 @@ class Kiwoom(QMainWindow):
     # 메인 로직
     # -------------------------------------
     def _execute_buy(self, code):
+        # [신규] 시간 필터 적용 (09:00:00 ~ 15:20:00만 매수 허용)
+        now_time_str = datetime.now().strftime('%H%M%S')
+        if not ("090000" <= now_time_str <= "152000"):
+            return
+
         now = datetime.now().strftime('%H:%M:%S')
         stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
 
@@ -479,6 +484,11 @@ class Kiwoom(QMainWindow):
             print(f"[{now}] [오류] 가격정보 사후 조회 실패: {code} ({e})")
 
     def _execute_sell(self, code):
+        # [신규] 시간 필터 적용 (09:00:00 ~ 15:30:00만 매도 허용)
+        now_time_str = datetime.now().strftime('%H%M%S')
+        if not ("090000" <= now_time_str <= "153000"):
+            return
+
         now = datetime.now().strftime('%H:%M:%S')
         stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
 
@@ -677,7 +687,7 @@ class Kiwoom(QMainWindow):
                             'qty': existing_qty, 'price': buy_price, 'buy_date': today, 'buy_time': now_time,
                             'target_raw': target_raw, 'type': '지정가',
                             'csv_buy_price': buy_price,
-                            'csv_slippage': slippage
+                            'csv_slippage': buy_price
                         }
 
                         if code not in self.bought_today:
@@ -719,7 +729,6 @@ class Kiwoom(QMainWindow):
                 if code in self.held_stocks:
                     self.held_stocks[code]['qty'] = qty
                     
-                    # [핵심] 분할 체결 시 정확한 '평균 매입단가(FID: 931)'를 가져와 보정 및 메모리 업데이트
                     avg_price_str = self.kiwoom.dynamicCall("GetChejanData(int)", 931)
                     avg_price = abs(int(avg_price_str)) if avg_price_str else 0
 
@@ -727,14 +736,12 @@ class Kiwoom(QMainWindow):
                         self.held_stocks[code]['price'] = avg_price
                         self.held_stocks[code]['csv_buy_price'] = avg_price
                         
-                        # 메모리(history_df) 상의 실제매입가도 정확한 평균단가로 덮어쓰기
                         if not self.history_df.empty:
                             mask = (self.history_df['종목코드'] == code) & (self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
                             if not self.history_df.loc[mask].empty:
                                 idx = self.history_df.loc[mask].index[-1]
                                 self.history_df.loc[idx, '실제매입가'] = avg_price
                                 
-                                # 변경된 단가를 바탕으로 매수슬리피지도 완벽하게 재계산
                                 target_raw = self.history_df.loc[idx, '매수목표가']
                                 if target_raw and str(target_raw).strip() != '' and float(target_raw) > 0:
                                     t_raw = float(target_raw)
@@ -742,7 +749,7 @@ class Kiwoom(QMainWindow):
                                     self.history_df.loc[idx, '매수슬리피지(%)'] = new_slippage
                                     self.held_stocks[code]['csv_slippage'] = new_slippage
                                     
-                        self.csv_save_timer.start(5000) # 평균단가가 업데이트 되었으니 5초 타이머 연장/가동
+                        self.csv_save_timer.start(5000)
                 else:
                     self.held_stocks[code] = {'qty': qty, 'price': 0}
             else:
@@ -762,9 +769,6 @@ class Kiwoom(QMainWindow):
 
         if self.job_queue:
             print(f"  > [대기 작업] 현재 큐에서 {len(self.job_queue)}개의 매수/매도 작업이 순차 진행 중입니다.")
-
-        if overlap_held > 0 or overlap_order > 0:
-            print(f"  > (참고) 검색 종목 중 {overlap_held}개는 이미 보유 중, {overlap_order}개는 매수 진행 중")
 
         if now.hour == 15 and now.minute >= 20 and self.open_buy_orders:
             print("[장마감] 미체결 취소")
