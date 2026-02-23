@@ -203,7 +203,6 @@ class CustomDailyStrategy(bt.Strategy):
             if (self.data.high[-2] / self.data.close[-3] - 1) > self.p.target_pct:
                 return
 
-
             # [조건 A-2] 갭상승제외 : 전일종가대비 당일시가가 이미 5%이상 오르고 시작하는 종목제외
             if (self.data.open[0] / self.data.close[-1] - 1) >= self.p.target_pct:
                 return
@@ -714,12 +713,12 @@ def main():
 
     # 월별 분석 출력
     print("\n\n📊 [월별 성과 분석]")
-    print("=" * 160)
-    # [수정] '평균보유기간' 컬럼을 '매수종목수평균' 뒤에 추가 및 전체 테이블 정렬 고정
+    print("=" * 175)
+    # [수정] '평균보유기간' 컬럼을 '매수종목수평균' 뒤에 추가, '슬리피지비율' 복원 및 전체 테이블 정렬 고정
     print(
         f"{'월 (Month)':<10} | {'게임수':>7} | {'매수종목수평균':>14} | {'평균보유기간':>12} | {'승률':>9} | {'총 수익금':>18} | {'가상수익금':>18} | "
-        f"{'1타수익률':>10} | {'회전률':>8} | {'예상게임수':>10} | {'10슬롯수익률':>14}")
-    print("-" * 160)
+        f"{'슬리피지비율':>12} | {'1타수익률':>10} | {'회전률':>8} | {'예상게임수':>10} | {'10슬롯수익률':>14}")
+    print("-" * 175)
     for ym in sorted(monthly_stats.keys()):
         s = monthly_stats[ym]
         win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
@@ -732,6 +731,7 @@ def main():
         m_turnover = (20 / m_avg_hold) if m_avg_hold > 0 else 0
         m_exp_games = m_turnover * 10
         m_10slot_rtn = m_exp_games * m_1hit_rtn
+        loss_ratio = (s['slippage'] / abs(s['profit']) * 100) if s['profit'] != 0 else 0
 
         # [수정] 데이터 변환 후 우측 정렬 (콘솔 깨짐 현상 완전 방지)
         games_str = f"{s['games']}회"
@@ -740,6 +740,7 @@ def main():
         win_str = f"{win_rate:.1f}%"
         profit_str = f"{s['profit']:,.0f}원"
         vprofit_str = f"{virtual_profit:,.0f}원"
+        loss_str = f"{loss_ratio:.2f}%"
         hit_str = f"{m_1hit_rtn:.2f}%"
         turn_str = f"{m_turnover:.2f}"
         exp_str = f"{m_exp_games:.1f}번"
@@ -747,16 +748,16 @@ def main():
 
         print(
             f"{ym:<10} | {games_str:>7} | {buys_str:>14} | {hold_str:>12} | {win_str:>9} | {profit_str:>18} | "
-            f"{vprofit_str:>18} | {hit_str:>10} | {turn_str:>8} | {exp_str:>10} | {slot_str:>14}")
+            f"{vprofit_str:>18} | {loss_str:>12} | {hit_str:>10} | {turn_str:>8} | {exp_str:>10} | {slot_str:>14}")
 
     # 년도별 분석 출력
     print("\n\n📊 [년도별 성과 분석]")
-    print("=" * 160)
-    # [수정] '평균보유기간' 추가 및 정렬 고정
+    print("=" * 175)
+    # [수정] '평균보유기간' 추가, '슬리피지비율' 복원 및 정렬 고정
     print(
         f"{'년도 (Year)':<10} | {'게임수':>7} | {'매수종목수평균':>14} | {'평균보유기간':>12} | {'승률':>9} | {'총 수익금':>18} | {'가상수익금':>18} | "
-        f"{'1타수익률':>10} | {'회전률(년)':>8} | {'예상게임수':>10} | {'10슬롯수익률':>14}")
-    print("-" * 160)
+        f"{'슬리피지비율':>12} | {'1타수익률':>10} | {'회전률(년)':>8} | {'예상게임수':>10} | {'10슬롯수익률':>14}")
+    print("-" * 175)
     for y in sorted(yearly_stats.keys()):
         s = yearly_stats[y]
         win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
@@ -769,6 +770,7 @@ def main():
         y_turnover = (240 / y_avg_hold) if y_avg_hold > 0 else 0
         y_exp_games = y_turnover * 10
         y_10slot_rtn = y_exp_games * y_1hit_rtn
+        loss_ratio = (s['slippage'] / abs(s['profit']) * 100) if s['profit'] != 0 else 0
 
         games_str = f"{s['games']}회"
         buys_str = f"{avg_yearly_buys:.1f}개"
@@ -776,6 +778,7 @@ def main():
         win_str = f"{win_rate:.1f}%"
         profit_str = f"{s['profit']:,.0f}원"
         vprofit_str = f"{virtual_profit:,.0f}원"
+        loss_str = f"{loss_ratio:.2f}%"
         hit_str = f"{y_1hit_rtn:.2f}%"
         turn_str = f"{y_turnover:.2f}"
         exp_str = f"{y_exp_games:.1f}번"
@@ -783,8 +786,8 @@ def main():
 
         print(
             f"{y:<10} | {games_str:>7} | {buys_str:>14} | {hold_str:>12} | {win_str:>9} | {profit_str:>18} | "
-            f"{vprofit_str:>18} | {hit_str:>10} | {turn_str:>8} | {exp_str:>10} | {slot_str:>14}")
-    print("=" * 160)
+            f"{vprofit_str:>18} | {loss_str:>12} | {hit_str:>10} | {turn_str:>8} | {exp_str:>10} | {slot_str:>14}")
+    print("=" * 175)
 
 
 if __name__ == "__main__":
