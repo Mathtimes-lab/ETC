@@ -332,7 +332,7 @@ class Kiwoom(QMainWindow):
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "계좌번호", self.account_num)
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호", "")
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호입력매체구분", "00")
-        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "조회구분", "2")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "조회구분", "1")
         self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "예수금요청", "opw00001", 0, "0105")
 
     def _get_stock_info(self, code):
@@ -437,7 +437,8 @@ class Kiwoom(QMainWindow):
                 QTimer.singleShot(200, self._req_deposit)
 
         elif rqname == "예수금요청":
-            deposit_str = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, 0, "주문가능금액").strip()
+            # [수정] 미수금이 포함된 '주문가능금액' 대신 순수 현금인 'd+2추정예수금'으로 변경
+            deposit_str = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, 0, "d+2추정예수금").strip()
             self.current_deposit = int(deposit_str) if deposit_str else 0
             
             # 장외 시간(08:50~15:40 외)에는 대기하도록 변경 (조건검색 로딩 지연)
