@@ -115,7 +115,7 @@ class Kiwoom(QMainWindow):
                 df = pd.read_csv(self.CSV_FILE_NAME, dtype={'종목코드': str})
                 self.history_df = self._migrate_history_columns(df)
                 self.history_df['종목코드'] = self.history_df['종목코드'].astype(str).str.replace("'", "").str.zfill(6)
-
+                
                 # 재시작 시 당일 매도 기록 복구 (당일 재매수 방지)
                 today_str = datetime.now().strftime('%Y-%m-%d')
                 sold_mask = self.history_df['매도일'] == today_str
@@ -240,7 +240,7 @@ class Kiwoom(QMainWindow):
                 hold_days = 0
 
             sell_slippage = ((
-                                     sell_target_price - actual_sell_price) / sell_target_price * 100) if sell_target_price > 0 else 0.0
+                                         sell_target_price - actual_sell_price) / sell_target_price * 100) if sell_target_price > 0 else 0.0
             total_slippage = buy_slippage + sell_slippage
 
             test_return = ((sell_target_price - buy_target) / buy_target * 100) if buy_target > 0 else 0.0
@@ -267,7 +267,7 @@ class Kiwoom(QMainWindow):
         try:
             if order_type == 'BUY':
                 mask = (self.history_df['종목코드'] == code) & (
-                        self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
+                            self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
                 if not self.history_df.loc[mask].empty:
                     idx = self.history_df.loc[mask].index[-1]
                     self.history_df.loc[idx, '매수목표가'] = int(target_price)
@@ -313,13 +313,16 @@ class Kiwoom(QMainWindow):
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "체결구분", "1")
         self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "미체결요청", "opt10075", 0, "0102")
 
-    def _req_account_balance(self):
-        print("[시스템] 보유 종목(계좌 잔고)을 확인합니다...")
+    def _req_account_balance(self, prev_next="0"):
+        # [수정] 보유종목이 20개를 초과할 경우(페이징)를 지원하기 위해 prev_next 파라미터 추가
+        if prev_next == "0":
+            print("[시스템] 보유 종목(계좌 잔고)을 확인합니다...")
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "계좌번호", self.account_num)
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호", "")
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호입력매체구분", "00")
         self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "조회구분", "2")
-        self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "잔고요청", "opw00018", 0, "0103")
+        # 0이면 처음부터 조회, 2이면 다음 페이지(연속)부터 조회합니다.
+        self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "잔고요청", "opw00018", int(prev_next), "0103")
 
     def _get_stock_info(self, code):
         """TR요청(opt10081)으로 당일 시가 및 과거 일봉(4일치) 데이터 확인 (Sync)"""
@@ -376,7 +379,7 @@ class Kiwoom(QMainWindow):
 
                     if not self.history_df.empty:
                         mask = (self.history_df['종목코드'] == code) & (
-                                self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
+                                    self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
                         if not self.history_df.loc[mask].empty:
                             last_idx = self.history_df.loc[mask].index[-1]
                             try:
@@ -409,17 +412,25 @@ class Kiwoom(QMainWindow):
                         'csv_slippage': csv_slippage
                     }
 
-            print(f"[시스템] 보유 종목 리스트 복원: {len(self.held_stocks)}종목")
-
-            # [수정] 장외 시간(08:50~15:40 외)에는 대기하도록 변경 (조건검색 로딩 지연)
-            now_time_str = datetime.now().strftime('%H%M%S')
-            if "085000" <= now_time_str <= "154000":
-                self._print_slippage_report()
-                if not self.condition_started:
-                    self.condition_started = True
-                    QTimer.singleShot(200, self._get_condition_load)
+            # [수정] 잔고가 20개를 초과할 경우(페이징) 처리 로직 추가
+            # 키움 API는 prev_next 인자로 "2"가 들어오면 다음 페이지(연속 데이터)가 있다는 뜻입니다.
+            if prev_next == "2":
+                print(f"[시스템] 잔고 20개 초과 발견! 다음 페이지(연속조회)를 요청합니다. (현재까지 {len(self.held_stocks)}종목 복원됨)")
+                # 0.2초 대기 후 다음 페이지 요청 (서버 과부하 에러 방지)
+                QTimer.singleShot(200, lambda: self._req_account_balance(prev_next="2"))
             else:
-                print("[시스템] 현재는 장외 시간입니다. 08:50에 실시간 감시와 정기 보고를 자동으로 시작합니다.")
+                # 마지막 페이지까지 모두 읽어온 경우에만 다음 단계(조건식 로딩 및 보고)로 넘어갑니다.
+                print(f"[시스템] 보유 종목 리스트 복원 완료: 총 {len(self.held_stocks)}종목")
+    
+                # 장외 시간(08:50~15:40 외)에는 대기하도록 변경 (조건검색 로딩 지연)
+                now_time_str = datetime.now().strftime('%H%M%S')
+                if "085000" <= now_time_str <= "154000":
+                    self._print_slippage_report()
+                    if not self.condition_started:
+                        self.condition_started = True
+                        QTimer.singleShot(200, self._get_condition_load)
+                else:
+                    print("[시스템] 현재는 장외 시간입니다. 08:50에 실시간 감시와 정기 보고를 자동으로 시작합니다.")
 
         elif rqname == "주식일봉기본요청":
             cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
@@ -758,17 +769,8 @@ class Kiwoom(QMainWindow):
                 if code not in self.sold_today:
                     self.sold_today.append(code)
 
-                print(f"[{now_time}] 💰 [예수금확보] 매도 체결 확인. 실시간 매수 대기 종목 재탐색 시작...")
-                for target_code in list(self.current_conditioned_stocks):
-                    if (target_code not in self.held_stocks and
-                            target_code not in self.open_buy_orders and
-                            target_code not in self.bought_today):
-
-                        is_in_queue = any(job['code'] == target_code and job['type'] == 'BUY' for job in self.job_queue)
-                        if not is_in_queue:
-                            target_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", target_code)
-                            print(f"  > [대기종목포착] {target_name}({target_code}) 매수 큐 등록")
-                            self.job_queue.append({'type': 'BUY', 'code': target_code})
+                # [수정/제거됨] 예수금 확보 시 기존 포착 종목을 무작정 추격 매수(재검색)하는 로직을 삭제함.
+                # (이제 억지로 큐에 넣지 않고, 새로운 실시간 편입 신호가 들어올 때만 매수함)
 
             print(f"[체결알림] {code} | {status} | {order_no}")
 
@@ -788,7 +790,7 @@ class Kiwoom(QMainWindow):
 
                         if not self.history_df.empty:
                             mask = (self.history_df['종목코드'] == code) & (
-                                    self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
+                                        self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
                             if not self.history_df.loc[mask].empty:
                                 idx = self.history_df.loc[mask].index[-1]
                                 self.history_df.loc[idx, '실제매입가'] = avg_price
