@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>키움 API 자동매매 프로그램 개선 히스토리</title>
+    <!-- Pretendard Web Font -->
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/variable/pretendardvariable.css" />
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Pretendard Variable"', 'Pretendard', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Roboto', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            900: '#0c4a6e',
+                            950: '#082f49',
+                        },
+                        navy: {
+                            800: '#1e293b',
+                            900: '#0f172a',
+                            950: '#020617',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            background-color: #0f172a; /* Navy background */
+            -webkit-font-smoothing: antialiased;
+        }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7); /* Dark semi-transparent */
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+        }
+        .timeline-line::before {
+            content: '';
+            position: absolute;
+            left: 24px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #334155; /* Darker line */
+            z-index: 0;
+        }
+        @media (min-width: 768px) {
+            .timeline-line::before {
+                left: 50%;
+                transform: translateX(-50%);
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-300 selection:bg-brand-500 selection:text-white">
+
+    <!-- Hero Section -->
+    <header class="relative bg-navy-950 text-white overflow-hidden border-b border-slate-800">
+        <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+        <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-500 to-teal-400"></div>
+        
+        <div class="relative max-w-5xl mx-auto px-6 py-24 md:py-32 text-center">
+            <div class="inline-flex items-center justify-center p-3 bg-white/5 rounded-2xl backdrop-blur-sm mb-8 ring-1 ring-white/10 shadow-lg">
+                <i data-lucide="bot" class="w-8 h-8 text-brand-400"></i>
+            </div>
+            <h1 class="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6 leading-tight text-white">
+                키움 API 자동매매 프로그램 <br class="hidden md:block" />
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-teal-300">개발 및 개선 히스토리</span>
+            </h1>
+            <p class="mt-4 text-lg md:text-xl text-slate-400 max-w-2xl mx-auto font-light leading-relaxed">
+                초기 버전의 자동매매 프로그램이 실전 투자를 위한 완벽한 무인 자동화 시스템으로 거듭나기까지의 치열한 개선 과정을 기록합니다.
+            </p>
+        </div>
+        
+        <!-- Decorative Bottom Divider - Fixed to match navy -->
+        <div class="absolute bottom-0 w-full h-16 bg-gradient-to-t from-navy-900 to-transparent"></div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-5xl mx-auto px-6 py-16">
+        
+        <div class="relative timeline-line">
+            
+            <!-- Phase 1 -->
+            <div class="relative z-10 mb-24">
+                <!-- 가려짐 현상 해결: absolute 제거 및 flex-col 사용 -->
+                <div class="flex flex-col items-center justify-center mb-12 relative z-20">
+                    <div class="bg-brand-600 text-white text-sm font-bold tracking-wider uppercase px-4 py-1.5 rounded-full shadow-md mb-4">
+                        Phase 1
+                    </div>
+                    <h2 class="text-xl md:text-2xl font-bold text-white bg-slate-800 px-6 py-3 rounded-full text-center border border-slate-700 shadow-sm max-w-full break-keep">
+                        초기 버그 수정 및 무인화 기반 마련
+                    </h2>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
+                    <!-- Item 1 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:text-right">
+                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                            <h3 class="text-xl font-bold text-white">1. 장 마감 시 미체결 취소 오류 해결</h3>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">1</span>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
+                                15시 20분에 미체결된 매수 주문 일괄 취소 시, <code class="bg-red-950 px-1.5 py-0.5 rounded text-red-300 border border-red-900">RC4061</code> 에러 발생 및 취소 실패. (원주문번호 누락)
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                <code class="bg-emerald-950 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-900">_send_order</code> 함수가 order_no를 인자로 받도록 수정하여 정상 취소 구현.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 2 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">2</span>
+                            <h3 class="text-xl font-bold text-white">2. 장외 시간 침묵 및 자동 가동</h3>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="target" class="w-4 h-4 text-amber-400"></i> 요구사항</span>
+                                새벽에 미리 켜두어도 장 시작 시간에 맞춰 동작하고, 불필요한 로그 출력을 방지.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                <code class="bg-emerald-950 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-900">08:50 ~ 15:40</code>에만 작동하는 시간 제어 로직 추가. 스스로 조건식 로딩 및 준비 완료.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Phase 2 -->
+            <div class="relative z-10 mb-24">
+                <!-- 가려짐 현상 해결 -->
+                <div class="flex flex-col items-center justify-center mb-12 relative z-20">
+                    <div class="bg-brand-600 text-white text-sm font-bold tracking-wider uppercase px-4 py-1.5 rounded-full shadow-md mb-4">
+                        Phase 2
+                    </div>
+                    <h2 class="text-xl md:text-2xl font-bold text-white bg-slate-800 px-6 py-3 rounded-full text-center border border-slate-700 shadow-sm max-w-full break-keep">
+                        매매 로직 고도화 및 치명적 리스크 차단
+                    </h2>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
+                    <!-- Item 3 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:text-right">
+                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                            <h3 class="text-xl font-bold text-white">3. 다중 전략 개별 운용 시스템</h3>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">3</span>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="target" class="w-4 h-4 text-amber-400"></i> 요구사항</span>
+                                다수의 조건식 동시 운용 시, 전략별 전용 매도식과 매수 금액 독립 설정 필요.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                <code class="bg-emerald-950 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-900">STRATEGIES</code> 맵(Map) 구조 도입. 출처를 기록하고 내 짝이 맞는 매도식에만 반응하도록 구현.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 4 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">4</span>
+                            <h3 class="text-xl font-bold text-white">4. 당일 재매수 및 비정상 매도 방지</h3>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
+                                장중 재시작 시 메모리 초기화로 인한 <strong class="text-red-300">재매수</strong> 및 <strong class="text-red-300">오매도</strong> 현상 발생.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                프로그램 시작 시 엑셀(CSV) 기록을 스캔하여 '오늘' 거래 기록을 찾아내고 메모리를 완벽히 복원하는 방어 1단계 적용.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 5 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:mt-8 md:text-right">
+                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                            <h3 class="text-xl font-bold text-white">5. '상투 잡기' 원천 차단</h3>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">5</span>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
+                                예수금 부족으로 놓친 오전 급등주를 오후에 예수금 확보 시 고점에서 추격 매수(상투 잡기)하는 치명적 오류.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                예수금 확보 시 기존 포착 종목 강제 재검색(매수) 로직을 전면 삭제. <strong class="text-emerald-300">새로운 진입 신호</strong>에만 반응하도록 제어.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Phase 3 -->
+            <div class="relative z-10">
+                <!-- 가려짐 현상 해결 -->
+                <div class="flex flex-col items-center justify-center mb-12 relative z-20">
+                    <div class="bg-brand-600 text-white text-sm font-bold tracking-wider uppercase px-4 py-1.5 rounded-full shadow-md mb-4">
+                        Phase 3
+                    </div>
+                    <h2 class="text-xl md:text-2xl font-bold text-white bg-slate-800 px-6 py-3 rounded-full text-center border border-slate-700 shadow-sm max-w-full break-keep">
+                        엣지 케이스 완벽 대응
+                    </h2>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
+                    <!-- Item 6 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">6</span>
+                            <h3 class="text-xl font-bold text-white">6. 20종목 초과 보유 시 잔고 누락 해결</h3>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
+                                재매수 방지 로직 적용 후에도, API가 한 번에 20종목까지만 전송하여 21번째 종목부터 잔고를 인식하지 못하고 재매수 발생.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                서버 연속조회 신호(<code class="bg-emerald-950 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-900">prev_next="2"</code>) 수신 시, 모든 잔고를 불러올 때까지 페이징 처리하는 로직 추가.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Appendix Section -->
+        <div class="mt-32 pt-16 border-t border-slate-800">
+            <div class="text-center mb-12">
+                <span class="text-brand-500 font-bold tracking-wider uppercase text-sm">Appendix</span>
+                <h2 class="text-3xl font-extrabold mt-2 text-white">시스템 구조 및 실전 운용 팁</h2>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Tip 1 -->
+                <div class="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 shadow-sm hover:shadow-lg transition-shadow">
+                    <div class="w-12 h-12 bg-slate-700 text-brand-400 rounded-xl flex items-center justify-center mb-4 border border-slate-600">
+                        <i data-lucide="hard-drive" class="w-6 h-6"></i>
+                    </div>
+                    <h4 class="text-lg font-bold text-white mb-2">하드디스크 I/O 최적화</h4>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        메모리(Pandas) 버퍼링 방식으로 변경. 5초간 유휴 상태일 때 엑셀에 한꺼번에 덮어쓰도록(Debouncing) 처리하여 프리징 및 디스크 부하 완벽 차단.
+                    </p>
+                </div>
+                
+                <!-- Tip 2 -->
+                <div class="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 shadow-sm hover:shadow-lg transition-shadow">
+                    <div class="w-12 h-12 bg-slate-700 text-teal-400 rounded-xl flex items-center justify-center mb-4 border border-slate-600">
+                        <i data-lucide="clock" class="w-6 h-6"></i>
+                    </div>
+                    <h4 class="text-lg font-bold text-white mb-2">0.3초 대기열(Queue) 시스템</h4>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        "현재 큐에서 1개 진행 중" 로그는 서버 과부하(-200) 에러 방지를 위해 0.3~0.5초 간격 일렬 전송 시스템이 정상 작동함을 의미합니다.
+                    </p>
+                </div>
+
+                <!-- Tip 3 -->
+                <div class="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 shadow-sm hover:shadow-lg transition-shadow">
+                    <div class="w-12 h-12 bg-slate-700 text-indigo-400 rounded-xl flex items-center justify-center mb-4 border border-slate-600">
+                        <i data-lucide="cpu" class="w-6 h-6"></i>
+                    </div>
+                    <h4 class="text-lg font-bold text-white mb-2">N100 셋업 & 다중접속</h4>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        8GB 램 환경에서는 CMD 실행 권장. HTS 중복 접속 시 로직 꼬임(수동 체결 혼선) 리스크가 있으므로 모니터링용 부계정 사용을 강력히 추천합니다.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-navy-950 text-slate-500 py-8 text-center mt-12 border-t border-slate-800">
+        <div class="flex justify-center items-center gap-2 mb-2">
+            <i data-lucide="shield-check" class="w-5 h-5 text-emerald-500"></i>
+            <span class="font-semibold text-slate-400">실전 투자용 검증 완료</span>
+        </div>
+        <p class="text-sm">Copyright &copy; 2026 Algorithmic Trading Bot System. All rights reserved.</p>
+    </footer>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+    </script>
+</body>
+</html>
