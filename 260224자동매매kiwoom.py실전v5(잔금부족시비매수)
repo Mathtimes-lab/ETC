@@ -1,0 +1,911 @@
+import sys
+import time
+import os
+import math
+import pandas as pd  # 데이터 저장/수정용
+import numpy as np  # 날짜 계산용
+from datetime import datetime
+from PyQt5.QtWidgets import *
+from PyQt5.QAxContainer import *
+from PyQt5.QtCore import *
+
+
+class Kiwoom(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # --- [설정 구간] ---
+        self.BUY_STRATEGY_NAME = "260218급등기본"
+        self.SELL_STRATEGY_NAME = "260218매도식"
+        self.CSV_FILE_NAME = "trade_history(real).csv"  # 저장할 파일명
+
+        # [추가] 매수/매도 금액 및 호가 설정
+        self.MAX_BUY_AMOUNT = 500000  # 1회 최대 매수 금액 (원)
+        self.BUY_ORDER_TYPE = "03"  # 매수 호가구분: "00"(지정가), "03"(시장가)
+        self.SELL_ORDER_TYPE = "03"  # 매도 호가구분: "00"(지정가), "03"(시장가)
+        # -----------------
+
+        self.account_num = None
+        self.bought_today = []  # 오늘 매수한 종목 리스트
+        self.sold_today = []  # 오늘 매도한 종목 리스트 (재매수 방지용)
+
+        # 보유 종목 관리: { '종목코드': {'qty': 수량, 'price': 단가, ...} }
+        self.held_stocks = {}
+
+        # 매수 주문 시점의 메타 데이터 임시 저장 (체결 전까지 보관)
+        self.buy_meta_data = {}
+
+        # TR 요청 데이터 임시 저장용 (동기 통신용)
+        self.tr_data_temp = {}
+
+        self.open_buy_orders = {}  # 미체결 매수 주문 관리
+
+        self.current_deposit = 0  # [신규] 실시간 예수금 잔액 추적용
+
+        # 현재 실시간 조건 만족 종목 관리 (모니터링용)
+        self.current_conditioned_stocks = set()
+
+        # [신규] 조건검색 가동 여부 플래그 (장외 시간 대기용)
+        self.condition_started = False
+
+        # 작업 대기열(Queue) 시스템 (TR 과부하 및 강제종료 0xC0000409 방지)
+        self.job_queue = []
+        self.is_processing_job = False  # 작업 중복 실행 방지용 락(Lock)
+
+        # [신규] 엑셀(CSV) 메모리 버퍼 및 일괄 저장(Debounce) 타이머 설정
+        self.history_df = pd.DataFrame()
+        self._load_csv_to_memory()
+
+        self.csv_save_timer = QTimer(self)
+        self.csv_save_timer.setSingleShot(True)
+        self.csv_save_timer.timeout.connect(self._save_csv_to_disk)
+
+        # 키움 OCX 생성
+        self.kiwoom = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
+
+        # API 팝업 억제
+        self.kiwoom.dynamicCall("KOA_Functions(QString, QString)", "SetShowMessage", "0")
+
+        # 이벤트 연결
+        self.kiwoom.OnEventConnect.connect(self._event_connect)
+        self.kiwoom.OnReceiveConditionVer.connect(self._handler_condition_load)
+        self.kiwoom.OnReceiveTrData.connect(self._handler_tr_data)
+        self.kiwoom.OnReceiveMsg.connect(self._handler_msg)
+
+        try:
+            self.kiwoom.OnReceiveTrCondition.connect(self._handler_condition)
+        except AttributeError:
+            self.kiwoom.OnReceiveCondition.connect(self._handler_condition)
+
+        self.kiwoom.OnReceiveRealCondition.connect(self._handler_real_condition)
+        self.kiwoom.OnReceiveChejanData.connect(self._handler_chejan_data)
+
+        # 시스템 점검 및 미체결 취소 타이머 (1분)
+        self.periodic_timer = QTimer(self)
+        self.periodic_timer.timeout.connect(self._periodic_check)
+        self.periodic_timer.start(60000)
+
+        # 슬리피지 분석 리포트 타이머 (5분)
+        self.slippage_timer = QTimer(self)
+        self.slippage_timer.timeout.connect(self._print_slippage_report)
+        self.slippage_timer.start(300000)
+
+        # 0xC0000409 에러 방지를 위해, 단발성(SingleShot) 타이머로 큐 처리 시작
+        QTimer.singleShot(1000, self._process_job_queue)
+
+    # -------------------------------------
+    # [유틸] 안전한 딜레이 (GUI/이벤트 멈춤 방지)
+    # -------------------------------------
+    def _safe_delay(self, ms):
+        """time.sleep 대신 사용하여 이벤트 루프가 멈추지 않도록 함"""
+        loop = QEventLoop()
+        QTimer.singleShot(ms, loop.quit)
+        loop.exec_()
+
+    # -------------------------------------
+    # [유틸] 엑셀 메모리 로딩 및 디바운싱(일괄 저장) 로직
+    # -------------------------------------
+    def _load_csv_to_memory(self):
+        """시작 시 단 1회만 CSV 파일을 메모리(history_df)에 로드하여 병목 차단"""
+        columns = [
+            '종목코드', '종목명', '매수일', '매수시간', '매수목표가', '실제매입가', '매수슬리피지(%)',
+            '매도일', '매도시간', '매도목표가', '실제매도가', '매도슬리피지(%)', '합산슬리피지(%)',
+            '테스트수익률(%)', '실제수익률(%)', '보유기간(일)'
+        ]
+        if os.path.exists(self.CSV_FILE_NAME):
+            try:
+                df = pd.read_csv(self.CSV_FILE_NAME, dtype={'종목코드': str})
+                self.history_df = self._migrate_history_columns(df)
+                self.history_df['종목코드'] = self.history_df['종목코드'].astype(str).str.replace("'", "").str.zfill(6)
+                
+                # 재시작 시 당일 매도 기록 복구 (당일 재매수 방지)
+                today_str = datetime.now().strftime('%Y-%m-%d')
+                sold_mask = self.history_df['매도일'] == today_str
+                for c in self.history_df.loc[sold_mask, '종목코드'].unique():
+                    if c not in self.sold_today:
+                        self.sold_today.append(c)
+            except Exception as e:
+                print(f"[오류] CSV 파일 메모리 로드 실패: {e}")
+                self.history_df = pd.DataFrame(columns=columns)
+        else:
+            self.history_df = pd.DataFrame(columns=columns)
+
+    def _save_csv_to_disk(self):
+        """5초간 아무런 거래 이벤트가 없으면(한가할 때) 메모리의 데이터를 CSV에 한방에 일괄 저장"""
+        if not self.history_df.empty:
+            try:
+                save_df = self.history_df.copy()
+                save_df['종목코드'] = save_df['종목코드'].apply(lambda x: f"'{x}" if not str(x).startswith("'") else x)
+                save_df.to_csv(self.CSV_FILE_NAME, index=False, encoding='utf-8-sig')
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 💾 [일괄저장] 이벤트 한산기 도달, 거래 내역 엑셀 파일 안전 기록 완료.\n")
+            except Exception as e:
+                print(f"\n[경고] 엑셀 일괄 저장 실패 (파일이 열려있을 수 있습니다. 데이터는 메모리에 보존됨): {e}\n")
+
+    def _migrate_history_columns(self, df):
+        rename_map = {
+            '5%상승가(보정X)': '매수목표가',
+            '목표가(보정X)': '매수목표가',
+            '슬리피지(%)': '매수슬리피지(%)',
+            '매도가격': '실제매도가',
+            '수익률(%)': '실제수익률(%)'
+        }
+        for old, new in rename_map.items():
+            if old in df.columns:
+                df = df.rename(columns={old: new})
+
+        for col in ['매도목표가', '매도슬리피지(%)', '합산슬리피지(%)', '테스트수익률(%)']:
+            if col not in df.columns:
+                df[col] = ''
+
+        return df
+
+    def _get_hoga_unit(self, price):
+        if price < 2000:
+            return 1
+        elif price < 5000:
+            return 5
+        elif price < 20000:
+            return 10
+        elif price < 50000:
+            return 50
+        elif price < 200000:
+            return 100
+        elif price < 500000:
+            return 500
+        else:
+            return 1000
+
+    def _adjust_price_to_tick(self, price):
+        unit = self._get_hoga_unit(price)
+        return int(round(price / unit) * unit)
+
+    # -------------------------------------
+    # [핵심] CSV 메모리 기반 이력 관리 로직 (디스크 I/O 완전 제거)
+    # -------------------------------------
+    def _log_buy_trade(self, code, stock_name, buy_date, buy_time, target_raw, buy_price, slippage):
+        """매수 체결 시: 메모리(history_df)에 신규 행 생성"""
+        if not self.history_df.empty:
+            is_duplicate = not self.history_df[
+                (self.history_df['종목코드'] == code) &
+                (self.history_df['매수일'] == buy_date) &
+                (self.history_df['매수시간'] == buy_time)
+                ].empty
+            if is_duplicate:
+                return
+
+        new_data = {
+            '종목코드': code,
+            '종목명': stock_name,
+            '매수일': buy_date,
+            '매수시간': buy_time,
+            '매수목표가': int(target_raw),
+            '실제매입가': buy_price,
+            '매수슬리피지(%)': round(slippage, 2),
+            '매도일': '', '매도시간': '', '매도목표가': '', '실제매도가': '',
+            '매도슬리피지(%)': '', '합산슬리피지(%)': '', '테스트수익률(%)': '',
+            '실제수익률(%)': '', '보유기간(일)': ''
+        }
+
+        self.history_df = pd.concat([self.history_df, pd.DataFrame([new_data])], ignore_index=True)
+        print(f"[기록대기] 매수 이력 메모리 등록 완료: {stock_name}")
+        self.csv_save_timer.start(5000)  # 5초 디바운싱 타이머 가동
+
+    def _log_sell_trade(self, code, stock_name, sell_date, sell_time, sell_target_price, actual_sell_price):
+        """매도 체결 시: 메모리(history_df)에 매도 정보 업데이트"""
+        if self.history_df.empty:
+            print(f"[오류] 메모리 기록이 없어 매도 업데이트 실패: {stock_name}")
+            return
+
+        mask = (self.history_df['종목코드'] == code) & (self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
+        if not self.history_df.loc[mask].empty:
+            idx = self.history_df.loc[mask].index[-1]
+
+            try:
+                buy_target = float(self.history_df.loc[idx, '매수목표가'])
+            except:
+                buy_target = float(self.history_df.loc[idx, '실제매입가'])
+
+            try:
+                buy_price = float(self.history_df.loc[idx, '실제매입가'])
+            except:
+                buy_price = 0.0
+
+            try:
+                buy_slippage = float(self.history_df.loc[idx, '매수슬리피지(%)'])
+            except:
+                buy_slippage = 0.0
+
+            buy_date = str(self.history_df.loc[idx, '매수일'])
+            try:
+                hold_days = np.busday_count(buy_date, sell_date)
+            except:
+                hold_days = 0
+
+            sell_slippage = ((
+                                         sell_target_price - actual_sell_price) / sell_target_price * 100) if sell_target_price > 0 else 0.0
+            total_slippage = buy_slippage + sell_slippage
+
+            test_return = ((sell_target_price - buy_target) / buy_target * 100) if buy_target > 0 else 0.0
+            actual_return = ((actual_sell_price - buy_price) / buy_price * 100) if buy_price > 0 else 0.0
+
+            self.history_df.loc[idx, '매도일'] = sell_date
+            self.history_df.loc[idx, '매도시간'] = sell_time
+            self.history_df.loc[idx, '매도목표가'] = int(sell_target_price)
+            self.history_df.loc[idx, '실제매도가'] = int(actual_sell_price)
+            self.history_df.loc[idx, '매도슬리피지(%)'] = round(sell_slippage, 2)
+            self.history_df.loc[idx, '합산슬리피지(%)'] = round(total_slippage, 2)
+            self.history_df.loc[idx, '테스트수익률(%)'] = round(test_return, 2)
+            self.history_df.loc[idx, '실제수익률(%)'] = round(actual_return, 2)
+            self.history_df.loc[idx, '보유기간(일)'] = hold_days
+
+            print(f"[기록대기] 매도 이력 메모리 업데이트 완료: {stock_name} (실제수익률: {actual_return:.2f}%)")
+            self.csv_save_timer.start(5000)
+        else:
+            print(f"[알림] '{stock_name}'의 매수 기록을 찾을 수 없어 매도 기록만 별도로 남길 수 없습니다.")
+
+    def _update_csv_target_price(self, code, target_price, order_type):
+        """사후 계산된 백테스트 목표가를 메모리(history_df)에 업데이트"""
+        if self.history_df.empty: return
+        try:
+            if order_type == 'BUY':
+                mask = (self.history_df['종목코드'] == code) & (
+                            self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
+                if not self.history_df.loc[mask].empty:
+                    idx = self.history_df.loc[mask].index[-1]
+                    self.history_df.loc[idx, '매수목표가'] = int(target_price)
+                    buy_price = float(self.history_df.loc[idx, '실제매입가'])
+                    if target_price > 0:
+                        self.history_df.loc[idx, '매수슬리피지(%)'] = round(((buy_price - target_price) / target_price) * 100,
+                                                                      2)
+                    self.csv_save_timer.start(5000)
+
+            elif order_type == 'SELL':
+                mask = (self.history_df['종목코드'] == code)
+                if not self.history_df.loc[mask].empty:
+                    idx = self.history_df.loc[mask].index[-1]
+                    self.history_df.loc[idx, '매도목표가'] = int(target_price)
+                    actual_sell = float(self.history_df.loc[idx, '실제매도가'])
+                    if target_price > 0:
+                        sell_slip = ((target_price - actual_sell) / target_price) * 100
+                        self.history_df.loc[idx, '매도슬리피지(%)'] = round(sell_slip, 2)
+                        try:
+                            buy_slip = float(self.history_df.loc[idx, '매수슬리피지(%)'])
+                        except:
+                            buy_slip = 0.0
+                        self.history_df.loc[idx, '합산슬리피지(%)'] = round(buy_slip + sell_slip, 2)
+                        try:
+                            buy_target = float(self.history_df.loc[idx, '매수목표가'])
+                        except:
+                            buy_target = float(self.history_df.loc[idx, '실제매입가'])
+                        if buy_target > 0:
+                            self.history_df.loc[idx, '테스트수익률(%)'] = round(
+                                ((target_price - buy_target) / buy_target) * 100, 2)
+                    self.csv_save_timer.start(5000)
+        except Exception:
+            pass
+
+    # -------------------------------------
+    # 초기화 체인
+    # -------------------------------------
+    def _req_outstanding_orders(self):
+        print("[시스템] 미체결 주문 내역을 확인합니다...")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "계좌번호", self.account_num)
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "전체종목구분", "0")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "매매구분", "0")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "체결구분", "1")
+        self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "미체결요청", "opt10075", 0, "0102")
+
+    def _req_account_balance(self, prev_next="0"):
+        # [수정] 보유종목이 20개를 초과할 경우(페이징)를 지원하기 위해 prev_next 파라미터 추가
+        if prev_next == "0":
+            print("[시스템] 보유 종목(계좌 잔고)을 확인합니다...")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "계좌번호", self.account_num)
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호", "")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호입력매체구분", "00")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "조회구분", "2")
+        # 0이면 처음부터 조회, 2이면 다음 페이지(연속)부터 조회합니다.
+        self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "잔고요청", "opw00018", int(prev_next), "0103")
+
+    def _req_deposit(self):
+        """[신규] 예수금 상세 현황(주문가능금액) 요청"""
+        if not self.account_num: return
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "계좌번호", self.account_num)
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호", "")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호입력매체구분", "00")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "조회구분", "2")
+        self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "예수금요청", "opw00001", 0, "0105")
+
+    def _get_stock_info(self, code):
+        """TR요청(opt10081)으로 당일 시가 및 과거 일봉(4일치) 데이터 확인 (Sync)"""
+        self.tr_data_temp = {}
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "기준일자", "")
+        self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
+        res = self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "주식일봉기본요청", "opt10081", 0, "0104")
+
+        if res != 0:
+            print(f"[시스템] 서버 과부하로 주식일봉기본요청(opt10081) 차단됨 (에러코드: {res})")
+            return self.tr_data_temp
+
+        self.tr_event_loop = QEventLoop()
+        QTimer.singleShot(3000, self.tr_event_loop.quit)
+        self.tr_event_loop.exec_()
+
+        return self.tr_data_temp
+
+    def _handler_tr_data(self, scr_no, rqname, trcode, recordname, prev_next, data_len, err_code, msg, splm_msg):
+        if rqname == "미체결요청":
+            cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+            for i in range(cnt):
+                code = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i,
+                                               "종목코드").strip()
+                order_no = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i,
+                                                   "주문번호").strip()
+                order_type = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i,
+                                                     "주문구분").strip()
+                if "매수" in order_type:
+                    self.open_buy_orders[code] = order_no
+            print(f"[시스템] 미체결 매수 주문 복원: {len(self.open_buy_orders)}건")
+            QTimer.singleShot(200, self._req_account_balance)
+
+        elif rqname == "잔고요청":
+            cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+            for i in range(cnt):
+                code = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i,
+                                               "종목번호").strip()
+                code = code.replace("A", "")
+
+                qty = int(self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i,
+                                                  "보유수량").strip())
+                price = int(self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i,
+                                                    "매입가").strip())
+
+                if qty > 0:
+                    target_raw = 0
+                    buy_date = ''
+                    buy_time = ''
+                    csv_buy_price = price
+                    csv_slippage = 0.0
+                    is_restored_from_csv = False
+
+                    if not self.history_df.empty:
+                        mask = (self.history_df['종목코드'] == code) & (
+                                    self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
+                        if not self.history_df.loc[mask].empty:
+                            last_idx = self.history_df.loc[mask].index[-1]
+                            try:
+                                target_raw = int(self.history_df.loc[last_idx, '매수목표가'])
+                                buy_date = str(self.history_df.loc[last_idx, '매수일'])
+                                buy_time = str(self.history_df.loc[last_idx, '매수시간'])
+                                csv_buy_price = float(self.history_df.loc[last_idx, '실제매입가'])
+                                csv_slippage = float(self.history_df.loc[last_idx, '매수슬리피지(%)'])
+                                is_restored_from_csv = True
+                            except Exception:
+                                pass
+
+                    if not is_restored_from_csv:
+                        target_raw = price
+                        csv_slippage = 0.0
+                        buy_date = '수동매수(기록없음)'
+                        buy_time = '00:00:00'
+
+                        stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
+                        self._log_buy_trade(code, stock_name, buy_date, buy_time, target_raw, price, csv_slippage)
+
+                    if buy_date == datetime.now().strftime('%Y-%m-%d'):
+                        if code not in self.bought_today:
+                            self.bought_today.append(code)
+
+                    self.held_stocks[code] = {
+                        'qty': qty, 'price': price, 'buy_date': buy_date, 'buy_time': buy_time,
+                        'target_raw': target_raw, 'type': '지정가',
+                        'csv_buy_price': csv_buy_price,
+                        'csv_slippage': csv_slippage
+                    }
+
+            # [수정] 잔고가 20개를 초과할 경우(페이징) 처리 로직 추가
+            # 키움 API는 prev_next 인자로 "2"가 들어오면 다음 페이지(연속 데이터)가 있다는 뜻입니다.
+            if prev_next == "2":
+                print(f"[시스템] 잔고 20개 초과 발견! 다음 페이지(연속조회)를 요청합니다. (현재까지 {len(self.held_stocks)}종목 복원됨)")
+                # 0.2초 대기 후 다음 페이지 요청 (서버 과부하 에러 방지)
+                QTimer.singleShot(200, lambda: self._req_account_balance(prev_next="2"))
+            else:
+                # 마지막 페이지까지 모두 읽어온 경우에만 다음 단계(조건식 로딩 및 보고)로 넘어갑니다.
+                print(f"[시스템] 보유 종목 리스트 복원 완료: 총 {len(self.held_stocks)}종목")
+    
+                # [수정] 잔고 복원 완료 후, 바로 조건식을 켜지 않고 예수금을 먼저 조회합니다.
+                QTimer.singleShot(200, self._req_deposit)
+
+        elif rqname == "예수금요청":
+            deposit_str = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, 0, "주문가능금액").strip()
+            self.current_deposit = int(deposit_str) if deposit_str else 0
+            
+            # 장외 시간(08:50~15:40 외)에는 대기하도록 변경 (조건검색 로딩 지연)
+            now_time_str = datetime.now().strftime('%H%M%S')
+            if "085000" <= now_time_str <= "154000":
+                if not self.condition_started:
+                    self._print_slippage_report()
+                    self.condition_started = True
+                    QTimer.singleShot(200, self._get_condition_load)
+            else:
+                if not self.condition_started:
+                    print(f"[시스템] 현재는 장외 시간입니다. (예수금: {self.current_deposit:,}원) 08:50에 자동으로 시작합니다.")
+
+        elif rqname == "주식일봉기본요청":
+            cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+
+            op = 0
+            pc = 0
+            c_list = []
+
+            if cnt > 0:
+                open_price = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, 0,
+                                                     "시가").strip()
+                op = abs(int(open_price)) if open_price else 0
+
+                if cnt > 1:
+                    prev_close = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname,
+                                                         1, "현재가").strip()
+                    pc = abs(int(prev_close)) if prev_close else 0
+
+                for i in range(1, min(cnt, 5)):
+                    close_price = self.kiwoom.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname,
+                                                          i, "현재가").strip()
+                    c_list.append(abs(int(close_price)) if close_price else 0)
+
+            self.tr_data_temp = {
+                'open': op,
+                'prev': pc,
+                'c_list': c_list
+            }
+            if hasattr(self, 'tr_event_loop') and self.tr_event_loop.isRunning():
+                self.tr_event_loop.quit()
+
+    # -------------------------------------
+    # 메인 로직
+    # -------------------------------------
+    def _execute_buy(self, code):
+        now_time_str = datetime.now().strftime('%H%M%S')
+        if not ("090000" <= now_time_str <= "152000"):
+            return
+
+        now = datetime.now().strftime('%H:%M:%S')
+        stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
+
+        if code in self.open_buy_orders:
+            print(f"[{now}] [매수스킵] {stock_name}({code}) - 미체결 매수 주문 대기 중")
+            return
+
+        if code in self.held_stocks:
+            print(f"[{now}] [매수스킵] {stock_name}({code}) - 이미 보유 중인 종목")
+            return
+
+        if code in self.bought_today:
+            return
+
+        if code in self.sold_today:
+            print(f"[{now}] [매수스킵] {stock_name}({code}) - 당일 매도 종목 (재매수 방지)")
+            return
+
+        now_ts = time.time()
+        if code in self.buy_meta_data:
+            last_ts = self.buy_meta_data[code].get('timestamp', 0)
+            if now_ts - last_ts < 2.0:
+                return
+
+        # [신규] 예수금 사전 차단 방어 로직 (최대매수금액의 130% 이하일 경우 스킵)
+        required_margin = self.MAX_BUY_AMOUNT * 1.3
+        if self.current_deposit <= required_margin:
+            print(f"[{now}] [매수스킵] {stock_name}({code}) - 증거금 부족 사전 차단 (예수금: {int(self.current_deposit):,}원 / 필요: {int(required_margin):,}원)")
+            return
+
+        # 1. 지연 없는 즉시 주문
+        current_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
+        current_price = abs(int(current_price_str)) if current_price_str else 0
+
+        if current_price == 0:
+            print(f"[{now}] [매수불가] {stock_name}({code}) - 현재가 조회 불가")
+            return
+
+        quantity = self.MAX_BUY_AMOUNT // current_price
+        if quantity == 0:
+            print(f"[{now}] [매수불가] {stock_name}({code}) - 단가 초과")
+            return
+
+        print(f"[{now}] 🚀 [자동매수] {stock_name}({code}) {quantity}주 즉시 시장가 주문 발송!")
+        self.buy_meta_data[code] = {'target_raw': 0, 'time': now, 'timestamp': now_ts}
+        
+        # [신규] 주문 즉시 내부 예수금을 차감하여, 1분 동기화 전에 허수주문이 나가는 것을 완벽 차단
+        self.current_deposit -= (quantity * current_price)
+        
+        self._send_order(code, 1, quantity, 0)
+
+        # 2. 주문 후 여유롭게 백테스트 목표가 계산
+        try:
+            info = self._get_stock_info(code)
+            open_price = info.get('open', current_price)
+            prev_price = info.get('prev', current_price)
+            c_list = info.get('c_list', [])
+
+            target_price = math.ceil(prev_price * 1.05)
+            golden_cross_price = 0
+            if len(c_list) >= 4:
+                c_1, c_2, c_3, c_4 = c_list[0], c_list[1], c_list[2], c_list[3]
+                golden_cross_price = math.ceil(1.5 * (c_3 + c_4) - (c_1 + c_2))
+
+            buy_req_price = max(target_price, golden_cross_price)
+            target_raw_int = int(open_price) if open_price > buy_req_price else int(buy_req_price)
+
+            # 3. 사후 메모리 업데이트
+            self.buy_meta_data[code]['target_raw'] = target_raw_int
+            print(f"  > (사후기록) 백테스트 매수목표가 산출 완료: {target_raw_int:,}원 (엑셀 반영 대기 중)")
+
+            self._update_csv_target_price(code, target_raw_int, 'BUY')
+
+            if code in self.held_stocks:
+                self.held_stocks[code]['target_raw'] = target_raw_int
+                if target_raw_int > 0:
+                    buy_price = self.held_stocks[code]['csv_buy_price']
+                    self.held_stocks[code]['csv_slippage'] = ((buy_price - target_raw_int) / target_raw_int) * 100
+
+        except Exception as e:
+            print(f"[{now}] [오류] 가격정보 사후 조회 실패: {code} ({e})")
+
+    def _execute_sell(self, code):
+        now_time_str = datetime.now().strftime('%H%M%S')
+        if not ("090000" <= now_time_str <= "153000"):
+            return
+
+        now = datetime.now().strftime('%H:%M:%S')
+        stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
+
+        if code in self.bought_today:
+            print(f"[{now}] [매도스킵] {stock_name} - 당일 매수 종목")
+            return
+
+        if code in self.held_stocks and self.held_stocks[code]['qty'] > 0:
+            quantity = self.held_stocks[code]['qty']
+
+            # 1. 지연시간 0초 즉시 시장가 매도 발송
+            print(f"[{now}] 🚀 [자동매도] {stock_name} {quantity}주 즉시 시장가 매도 발송!")
+            self._send_order(code, 2, quantity, 0)
+
+            # 2. 주문 후 백테스트 매도목표가 계산
+            info = self._get_stock_info(code)
+            c_list = info.get('c_list', [])
+            open_price = info.get('open', 0)
+
+            sell_target_price = 0
+            if len(c_list) >= 4:
+                c_1, c_2, c_3, c_4 = c_list[0], c_list[1], c_list[2], c_list[3]
+                cross_price = round(1.5 * (c_3 + c_4) - (c_1 + c_2))
+
+                if 0 < open_price < cross_price:
+                    sell_target_price = open_price
+                else:
+                    sell_target_price = cross_price
+
+            if sell_target_price == 0:
+                current_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
+                sell_target_price = abs(int(current_price_str)) if current_price_str else 0
+
+            self.held_stocks[code]['sell_target_price'] = sell_target_price
+            print(f"  > (사후기록) 백테스트 매도목표가 산출 완료: {sell_target_price:,}원 (엑셀 반영 대기 중)")
+
+            # 3. 사후 메모리 업데이트
+            self._update_csv_target_price(code, sell_target_price, 'SELL')
+
+        else:
+            print(f"[{now}] [매도불가] {stock_name} - 잔고 없음")
+
+    # -------------------------------------
+    # 작업 큐 처리
+    # -------------------------------------
+    def _process_job_queue(self):
+        if self.is_processing_job:
+            QTimer.singleShot(200, self._process_job_queue)
+            return
+
+        if not self.job_queue:
+            QTimer.singleShot(500, self._process_job_queue)
+            return
+
+        self.is_processing_job = True
+
+        try:
+            job = self.job_queue.pop(0)
+            job_type = job['type']
+            code = job['code']
+
+            if job_type == 'BUY':
+                self._execute_buy(code)
+            elif job_type == 'SELL':
+                self._execute_sell(code)
+        finally:
+            self.is_processing_job = False
+            QTimer.singleShot(300, self._process_job_queue)
+
+    # -------------------------------------
+    # 이벤트 핸들러
+    # -------------------------------------
+    def comm_connect(self):
+        print("[시스템] 로그인 시도...")
+        self.kiwoom.dynamicCall("CommConnect()")
+        self.login_event_loop = QEventLoop()
+        self.login_event_loop.exec_()
+
+    def _event_connect(self, err_code):
+        if err_code == 0:
+            print("로그인 성공!")
+            self.kiwoom.dynamicCall("KOA_Functions(QString, QString)", "SetShowMessage", "0")
+
+            self._get_account_info()
+            QTimer.singleShot(200, self._req_outstanding_orders)
+        else:
+            print("로그인 실패")
+            self.login_event_loop.exit()
+
+    def _handler_msg(self, scr_no, rqname, trcode, msg):
+        if "매수" in rqname or "주문" in msg:
+            print(f"[서버메시지] {msg}")
+        elif "조회" in msg or "초과" in msg or "제한" in msg:
+            print(f"[서버경고] {msg}")
+
+    def after_login(self):
+        self.login_event_loop.exit()
+
+    def _get_account_info(self):
+        self.account_num = self.kiwoom.dynamicCall("GetLoginInfo(QString)", "ACCNO").split(';')[0]
+        print(f"[내 정보] 계좌번호: {self.account_num}")
+
+    def _get_condition_load(self):
+        self.kiwoom.dynamicCall("GetConditionLoad()")
+
+    def _handler_condition_load(self, ret, msg):
+        if ret == 1:
+            print("[시스템] 조건식 로딩 완료.")
+            conditions = self.kiwoom.dynamicCall("GetConditionNameList()").split(";")[:-1]
+            for c in conditions:
+                idx, name = c.split('^')
+                if name in [self.BUY_STRATEGY_NAME, self.SELL_STRATEGY_NAME]:
+                    print(f"[{name}] 초기 검색 및 실시간 감시 요청...")
+                    self.kiwoom.dynamicCall("SendCondition(QString, QString, int, int)",
+                                            "0156" if "매수" in name else "0157", name, int(idx), 1)
+                    self._safe_delay(1500)
+
+    def _handler_condition(self, scr_no, code_list, cond_name, cond_index, next):
+        now = datetime.now().strftime('%H:%M:%S')
+        codes = code_list.split(';')[:-1] if code_list else []
+        print(f"\n[{now}] [{cond_name}] 검색 결과: {len(codes)}종목")
+
+        if cond_name.strip() == self.SELL_STRATEGY_NAME.strip():
+            sell_targets = [c for c in codes if c in self.held_stocks]
+            if sell_targets:
+                print(f"  > [매도대상발견] 잔고 중 매도 조건 일치: {len(sell_targets)}종목 발견 (큐에 대기 등록)")
+                for code in sell_targets:
+                    self.job_queue.append({'type': 'SELL', 'code': code})
+            else:
+                print(f"  > [매도대상없음] 검색된 종목 중 현재 잔고에 보유한 종목이 없습니다.")
+
+        elif cond_name.strip() == self.BUY_STRATEGY_NAME.strip():
+            for code in codes:
+                self.current_conditioned_stocks.add(code)
+                self.job_queue.append({'type': 'BUY', 'code': code})
+
+    def _handler_real_condition(self, code, type, cond_name, cond_index):
+        if type == 'I':
+            if cond_name.strip() == self.BUY_STRATEGY_NAME.strip():
+                self.current_conditioned_stocks.add(code)
+                self.job_queue.append({'type': 'BUY', 'code': code})
+            elif cond_name.strip() == self.SELL_STRATEGY_NAME.strip():
+                self.job_queue.append({'type': 'SELL', 'code': code})
+        elif type == 'D' and cond_name.strip() == self.BUY_STRATEGY_NAME.strip():
+            self.current_conditioned_stocks.discard(code)
+
+    def _send_order(self, code, order_type, quantity, price, order_no=""):
+        if order_type == 1:  # 신규매수
+            hoga = self.BUY_ORDER_TYPE
+            if hoga == "03": price = 0  # 시장가는 가격 0 전송
+        elif order_type == 2:  # 신규매도
+            hoga = self.SELL_ORDER_TYPE
+            if hoga == "03":
+                price = 0
+            elif hoga == "00" and price == 0:
+                current_price_str = self.kiwoom.dynamicCall("GetMasterLastPrice(QString)", code)
+                price = abs(int(current_price_str)) if current_price_str else 0
+        else:  # 매수취소 등 기타
+            hoga = "00"
+
+        self.kiwoom.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
+                                ["send_order", "0101", self.account_num, order_type, code, quantity, price, hoga,
+                                 order_no])
+
+    def _handler_chejan_data(self, gubun, item_cnt, fid_list):
+        if gubun == '0':  # 접수/체결
+            status = self.kiwoom.dynamicCall("GetChejanData(int)", 913)
+            code = self.kiwoom.dynamicCall("GetChejanData(int)", 9001).replace('A', '').strip()
+            order_no = self.kiwoom.dynamicCall("GetChejanData(int)", 9203)
+            order_type = self.kiwoom.dynamicCall("GetChejanData(int)", 905)
+
+            if "매수" in order_type:
+                if status == "접수":
+                    self.open_buy_orders[code] = order_no
+                elif status == "체결":
+                    if code in self.open_buy_orders: del self.open_buy_orders[code]
+
+                    if code not in self.held_stocks or 'buy_date' not in self.held_stocks[code]:
+                        buy_price = int(self.kiwoom.dynamicCall("GetChejanData(int)", 910))
+                        stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
+                        today = datetime.now().strftime('%Y-%m-%d')
+                        now_time = datetime.now().strftime('%H:%M:%S')
+
+                        target_raw = 0
+                        if code in self.buy_meta_data: target_raw = self.buy_meta_data[code]['target_raw']
+
+                        slippage = 0
+                        if target_raw > 0:
+                            slippage = ((buy_price - target_raw) / target_raw) * 100
+
+                        self._log_buy_trade(code, stock_name, today, now_time, target_raw, buy_price, slippage)
+
+                        existing_qty = self.held_stocks[code].get('qty', 0) if code in self.held_stocks else 0
+
+                        self.held_stocks[code] = {
+                            'qty': existing_qty, 'price': buy_price, 'buy_date': today, 'buy_time': now_time,
+                            'target_raw': target_raw, 'type': '지정가',
+                            'csv_buy_price': buy_price,
+                            'csv_slippage': buy_price
+                        }
+
+                        if code not in self.bought_today:
+                            self.bought_today.append(code)
+
+            elif "매도" in order_type and status == "체결":
+                actual_sell_price = int(self.kiwoom.dynamicCall("GetChejanData(int)", 910))
+                stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
+                today = datetime.now().strftime('%Y-%m-%d')
+                now_time = datetime.now().strftime('%H:%M:%S')
+
+                sell_target_price = 0
+                if code in self.held_stocks and 'sell_target_price' in self.held_stocks[code]:
+                    sell_target_price = self.held_stocks[code]['sell_target_price']
+
+                if sell_target_price == 0:
+                    sell_target_price = actual_sell_price
+
+                self._log_sell_trade(code, stock_name, today, now_time, sell_target_price, actual_sell_price)
+
+                if code not in self.sold_today:
+                    self.sold_today.append(code)
+
+                # [신규] 매도 체결 시 예수금 갱신 요청 (1초 뒤 안전하게)
+                QTimer.singleShot(1000, self._req_deposit)
+
+                # [수정/제거됨] 예수금 확보 시 기존 포착 종목을 무작정 추격 매수(재검색)하는 로직을 삭제함.
+                # (이제 억지로 큐에 넣지 않고, 새로운 실시간 편입 신호가 들어올 때만 매수함)
+
+            print(f"[체결알림] {code} | {status} | {order_no}")
+
+        elif gubun == '1':  # 잔고통보
+            code = self.kiwoom.dynamicCall("GetChejanData(int)", 9001).replace('A', '').strip()
+            qty = int(self.kiwoom.dynamicCall("GetChejanData(int)", 930))
+            if qty > 0:
+                if code in self.held_stocks:
+                    self.held_stocks[code]['qty'] = qty
+
+                    avg_price_str = self.kiwoom.dynamicCall("GetChejanData(int)", 931)
+                    avg_price = abs(int(avg_price_str)) if avg_price_str else 0
+
+                    if avg_price > 0:
+                        self.held_stocks[code]['price'] = avg_price
+                        self.held_stocks[code]['csv_buy_price'] = avg_price
+
+                        if not self.history_df.empty:
+                            mask = (self.history_df['종목코드'] == code) & (
+                                        self.history_df['매도일'].isna() | (self.history_df['매도일'] == ''))
+                            if not self.history_df.loc[mask].empty:
+                                idx = self.history_df.loc[mask].index[-1]
+                                self.history_df.loc[idx, '실제매입가'] = avg_price
+
+                                target_raw = self.history_df.loc[idx, '매수목표가']
+                                if target_raw and str(target_raw).strip() != '' and float(target_raw) > 0:
+                                    t_raw = float(target_raw)
+                                    new_slippage = round(((avg_price - t_raw) / t_raw) * 100, 2)
+                                    self.history_df.loc[idx, '매수슬리피지(%)'] = new_slippage
+                                    self.held_stocks[code]['csv_slippage'] = new_slippage
+
+                        self.csv_save_timer.start(5000)
+                else:
+                    self.held_stocks[code] = {'qty': qty, 'price': 0}
+            else:
+                if code in self.held_stocks: del self.held_stocks[code]
+
+    def _periodic_check(self):
+        # [신규] 예수금 1분마다 주기적 서버 동기화
+        self._req_deposit()
+        
+        # [신규] 시간 체크를 통해 장 시작 전/장 종료 후 불필요한 알림 및 검색 동작 제한
+        now_time_str = datetime.now().strftime('%H%M%S')
+        if "085000" <= now_time_str <= "154000":
+            if not self.condition_started:
+                print(f"\n[시스템] 지정 시간 도달. 조건식 로딩 및 실시간 감시를 자동 시작합니다.")
+                self.condition_started = True
+                self._get_condition_load()
+        else:
+            self.condition_started = False
+            return  # 이 시간 외에는 주기적 점검 알림 생략
+
+        now = datetime.now()
+        print(f"\n[시스템 점검] {now.strftime('%H:%M:%S')} 실시간 감시 작동 중...")
+
+        search_count = len(self.current_conditioned_stocks)
+        print(f"  > [실시간 검색] 현재 매수 조건 포착 종목 수: {search_count}개")
+
+        overlap_held = len(self.current_conditioned_stocks.intersection(set(self.held_stocks.keys())))
+        overlap_order = len(self.current_conditioned_stocks.intersection(set(self.open_buy_orders.keys())))
+
+        print(f"  > [계좌 현황] 보유종목: {len(self.held_stocks)}개, 미체결주문: {len(self.open_buy_orders)}건")
+
+        if self.job_queue:
+            print(f"  > [대기 작업] 현재 큐에서 {len(self.job_queue)}개의 매수/매도 작업이 순차 진행 중입니다.")
+
+        if now.hour == 15 and now.minute >= 20 and self.open_buy_orders:
+            print("[장마감] 미체결 취소")
+            for code, order_no in list(self.open_buy_orders.items()):
+                self._send_order(code, 3, 0, 0, order_no)
+                del self.open_buy_orders[code]
+                self._safe_delay(300)
+
+    def _print_slippage_report(self):
+        # [신규] 장외 시간에는 슬리피지 분석표 출력 생략
+        now_time_str = datetime.now().strftime('%H%M%S')
+        if not ("085000" <= now_time_str <= "154000"):
+            return
+
+        if not self.held_stocks: return
+        print(f"\n[시스템] 슬리피지 분석 ({datetime.now().strftime('%H:%M:%S')})")
+        print("-" * 100)
+        print(f"{'종목명':<10} | {'매수일시':<20} | {'목표가':<10} | {'매입가':<10} | {'슬리피지%':<10}")
+        print("-" * 100)
+
+        total_slippage = 0
+        count = 0
+
+        for code, info in self.held_stocks.items():
+            name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code)
+            target = info.get('target_raw', 0)
+
+            buy_price = info.get('csv_buy_price', info['price'])
+            slippage = info.get('csv_slippage', 0.0)
+
+            total_slippage += slippage
+            count += 1
+
+            print(
+                f"{name:<10} | {info.get('buy_date', '')} {info.get('buy_time', '')} | {int(target):<10} | {int(buy_price):<10} | {slippage:.2f}%")
+
+        print("-" * 100)
+        if count > 0:
+            avg_slippage = total_slippage / count
+            print(f"[전체 평균 슬리피지] {avg_slippage:.2f}%")
+        print("-" * 100)
