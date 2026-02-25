@@ -425,7 +425,7 @@ def main():
     print("📌 설정: 볼린저밴드(20, 2), 밴드폭 12% 이상, 확인 매매(당일 체결)")
     print("📌 기간: 2025-01-01 ~ 현재")
 
-    data_dir = ("stock_data_200100")
+    data_dir = ("stock_data_p200d150")
     if not os.path.exists(data_dir):
         print(f"🚨 '{data_dir}' 폴더가 없습니다!")
         return
