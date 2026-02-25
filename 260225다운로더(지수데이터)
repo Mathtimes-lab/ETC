@@ -1,0 +1,174 @@
+import sys
+import os
+import time
+import pandas as pd
+from datetime import datetime
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QAxContainer import QAxWidget
+from PyQt5.QtCore import QEventLoop
+
+# ==========================================
+# 💡 [사용자 설정] 지수 데이터 다운로드 설정
+# ==========================================
+START_YEAR = 2016                  # 다운로드 시작 연도 (예: 10년 치 -> 2016)
+END_YEAR = 2026                    # 다운로드 종료 연도 (예: 현재 -> 2026)
+SAVE_DIR = "common_market_data"    # 📂 공통 지수 데이터를 저장할 메인 폴더명
+# ==========================================
+
+class KiwoomDownloader(QAxWidget):
+    def __init__(self):
+        super().__init__()
+        self._create_kiwoom_instance()
+        self._set_signal_slots()
+        self._login()
+
+        self.remained_data = False
+        self.ohlcv_data = []
+        self.screen_no = "0101"
+
+    def _create_kiwoom_instance(self):
+        self.setControl("KHOPENAPI.KHOpenAPICtrl.1")
+
+    def _set_signal_slots(self):
+        self.OnEventConnect.connect(self._on_event_connect)
+        self.OnReceiveTrData.connect(self._on_receive_tr_data)
+
+    def _login(self):
+        self.login_event_loop = QEventLoop()
+        self.dynamicCall("CommConnect()")
+        self.login_event_loop.exec_()
+
+    def _on_event_connect(self, err_code):
+        if err_code == 0:
+            print("✅ 키움 API 로그인 성공")
+        else:
+            print(f"❌ 로그인 실패 (에러코드: {err_code})")
+        self.login_event_loop.exit()
+
+    # [핵심] 업종(지수) 일봉 차트 조회 (opt20006)
+    def request_index_daily_chart(self, index_code, start_year, end_year):
+        self.ohlcv_data = []
+        self.remained_data = True
+        next_val = 0
+
+        # 목표 기간의 시작과 끝 날짜 설정 (YYYYMMDD)
+        start_date_str = f"{start_year}0101"
+        end_date_str = f"{end_year}1231"
+
+        while self.remained_data:
+            # 001: 코스피, 101: 코스닥 등
+            self.dynamicCall("SetInputValue(QString, QString)", "업종코드", index_code)
+            self.dynamicCall("SetInputValue(QString, QString)", "기준일자", end_date_str)
+            self._comm_rq_data("opt20006", "업종일봉차트조회", next_val, self.screen_no)
+
+            if self.ohlcv_data:
+                last_date_str = self.ohlcv_data[-1][0]  # 현재 리스트의 마지막 일자 (YYYYMMDD)
+                if last_date_str:
+                    # 가져온 데이터가 목표 기간 시작일보다 과거로 넘어가면 조기 종료
+                    if last_date_str < start_date_str:
+                        break
+
+            if self.remained_data:
+                next_val = 2
+                time.sleep(0.5)  # TR 통신 과부하 방지
+
+        if not self.ohlcv_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(self.ohlcv_data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+        
+        # 일봉에 맞춰 날짜 파싱 형식 변경 (YYYYMMDD)
+        df['Date'] = pd.to_datetime(df['Date'], format='%Y%m%d')
+        
+        # 정확히 사용자가 지정한 기간의 데이터만 필터링 후 오름차순 정렬
+        df = df[(df['Date'].dt.year >= start_year) & (df['Date'].dt.year <= end_year)]
+        df = df.sort_values(by='Date').reset_index(drop=True)
+
+        return df
+
+    def _comm_rq_data(self, trcode, rqname, next_val, screen_no):
+        self.tr_event_loop = QEventLoop()
+        ret = self.dynamicCall("CommRqData(QString, QString, int, QString)", rqname, trcode, next_val, screen_no)
+        if ret != 0:
+            print(f"\n❌ TR 요청 실패 ({rqname}) - 에러코드: {ret}")
+            self.remained_data = False
+            return
+        self.tr_event_loop.exec_()
+
+    def _get_comm_data_float(self, trcode, rqname, index, item_name):
+        """지수는 소수점이 포함될 수 있으므로 float로 변환"""
+        val = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, index, item_name).strip()
+        try:
+            return abs(float(val)) if val else 0.0
+        except ValueError:
+            return 0.0
+
+    def _get_comm_data_int(self, trcode, rqname, index, item_name):
+        """거래량 등은 정수로 변환"""
+        val = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, index, item_name).strip()
+        try:
+            return abs(int(val)) if val else 0
+        except ValueError:
+            return 0
+
+    def _on_receive_tr_data(self, screen_no, rqname, trcode, record_name, next_val, unused1, unused2, unused3, unused4):
+        # 연속조회(다음 페이지) 데이터 유무 플래그 업데이트
+        self.remained_data = (next_val == '2')
+        count = self.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+
+        for i in range(count):
+            date = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i, "일자").strip()
+            open_ = self._get_comm_data_float(trcode, rqname, i, "시가")
+            high = self._get_comm_data_float(trcode, rqname, i, "고가")
+            low = self._get_comm_data_float(trcode, rqname, i, "저가")
+            close = self._get_comm_data_float(trcode, rqname, i, "현재가")
+            volume = self._get_comm_data_int(trcode, rqname, i, "거래량")
+
+            self.ohlcv_data.append([date, open_, high, low, close, volume])
+
+        self.tr_event_loop.exit()
+
+
+def main():
+    app = QApplication(sys.argv)
+
+    print("🚀 키움증권 API 인스턴스 생성 중...")
+    kiwoom = KiwoomDownloader()
+
+    # 상단 설정값 반영
+    save_dir = SAVE_DIR
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    # 💡 키움증권 업종코드 (001: 종합(코스피), 101: 종합(코스닥))
+    target_indices = [
+        ("001", "코스피"),
+        ("101", "코스닥")
+    ]
+
+    print(f"🚀 다운로드 시작 ({START_YEAR}년 ~ {END_YEAR}년 지수 데이터)...")
+
+    for idx, (code, name) in enumerate(target_indices):
+        print(f"[{idx + 1}/{len(target_indices)}] {name}({code}) 지수 데이터 요청 중...", end=" ", flush=True)
+
+        try:
+            df = kiwoom.request_index_daily_chart(code, START_YEAR, END_YEAR)
+
+            if not df.empty:
+                file_path = os.path.join(save_dir, f"{name}_일봉지수.xlsx")
+                df.to_excel(file_path, index=False)
+                print(f"완료 ({len(df)}일치 저장됨)")
+            else:
+                print("데이터 없음")
+
+            time.sleep(0.5)  # TR 초당 요청 횟수 제한 방어
+
+        except Exception as e:
+            print(f"실패 ({e})")
+
+    print(f"\n🎉 '{save_dir}' 폴더에 2개의 지수 파일이 성공적으로 생성되었습니다!")
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()
