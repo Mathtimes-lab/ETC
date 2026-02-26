@@ -96,7 +96,6 @@
             
             <!-- Phase 1 -->
             <div class="relative z-10 mb-24">
-                <!-- 가려짐 현상 해결: absolute 제거 및 flex-col 사용 -->
                 <div class="flex flex-col items-center justify-center mb-12 relative z-20">
                     <div class="bg-brand-600 text-white text-sm font-bold tracking-wider uppercase px-4 py-1.5 rounded-full shadow-md mb-4">
                         Phase 1
@@ -147,7 +146,6 @@
 
             <!-- Phase 2 -->
             <div class="relative z-10 mb-24">
-                <!-- 가려짐 현상 해결 -->
                 <div class="flex flex-col items-center justify-center mb-12 relative z-20">
                     <div class="bg-brand-600 text-white text-sm font-bold tracking-wider uppercase px-4 py-1.5 rounded-full shadow-md mb-4">
                         Phase 2
@@ -215,8 +213,7 @@
             </div>
 
             <!-- Phase 3 -->
-            <div class="relative z-10">
-                <!-- 가려짐 현상 해결 -->
+            <div class="relative z-10 mb-24">
                 <div class="flex flex-col items-center justify-center mb-12 relative z-20">
                     <div class="bg-brand-600 text-white text-sm font-bold tracking-wider uppercase px-4 py-1.5 rounded-full shadow-md mb-4">
                         Phase 3
@@ -241,6 +238,97 @@
                             <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
                                 서버 연속조회 신호(<code class="bg-emerald-950 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-900">prev_next="2"</code>) 수신 시, 모든 잔고를 불러올 때까지 페이징 처리하는 로직 추가.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Phase 4 (NEW) -->
+            <div class="relative z-10">
+                <div class="flex flex-col items-center justify-center mb-12 relative z-20">
+                    <div class="bg-brand-600 text-white text-sm font-bold tracking-wider uppercase px-4 py-1.5 rounded-full shadow-md mb-4 shadow-brand-500/50">
+                        Phase 4 <span class="ml-1 text-xs opacity-75">(최신 업데이트)</span>
+                    </div>
+                    <h2 class="text-xl md:text-2xl font-bold text-white bg-slate-800 px-6 py-3 rounded-full text-center border border-slate-700 shadow-sm max-w-full break-keep ring-2 ring-brand-500/30">
+                        실전 트레이딩 딜레마 해결 및 안정성 극대화
+                    </h2>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
+                    <!-- Item 7 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:text-right">
+                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                            <h3 class="text-xl font-bold text-white">7. 매수 목표가 산정 로직 심플화</h3>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">7</span>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="trending-up" class="w-4 h-4 text-amber-400"></i> 요구사항</span>
+                                3일/5일 이동평균선 골든크로스를 고려한 목표가 산정이 과도하게 보수적이라는 판단.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                복잡한 골든크로스 로직을 제거(주석 처리)하고, 직관적인 <strong class="text-emerald-300">'전일 종가 대비 5% 상승가'</strong>로 백테스트 목표가를 고정하여 명확성 확보.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 8 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24 border-red-500/30 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-2 h-full bg-red-500/50"></div>
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">8</span>
+                            <h3 class="text-xl font-bold text-white">8. 치명적 미수금(풀매수) 리스크 방어</h3>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="shield-alert" class="w-4 h-4 text-red-400"></i> 문제 (반대매매 위험)</span>
+                                기존 '주문가능금액' 필드가 <strong class="text-red-300">미수(대출) 레버리지가 포함된 최대 한도</strong>를 불러와, 내 현금을 초과하여 주식을 풀매수할 수 있는 대형 사고 위험성 발견.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                조회 필드를 순수 현금인 <code class="bg-emerald-950 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-900">d+2추정예수금</code>으로 변경. 또한 조회구분을 '2(일반)'에서 '1(추정)'로 수정하여 서버에서 0원을 뱉어내는 버그를 완벽히 해결.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 9 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:mt-8 md:text-right border-indigo-500/30 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-2 h-full bg-indigo-500/50"></div>
+                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                            <h3 class="text-xl font-bold text-white">9. 동시호가 허수 방어 및 시가 매도</h3>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">9</span>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="swords" class="w-4 h-4 text-red-400"></i> 딜레마</span>
+                                장전(08:50)에 포착된 매도 종목을 미리 주문하면 <strong class="text-red-300">세력의 허수 호가 장난</strong>에 당할 수 있고, 매수 종목을 사면 <strong class="text-red-300">갭상승 뇌동매매</strong> 위험이 큼.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 최적화 로직 적용</span>
+                                ❶ 장전 '매수' 대상은 전량 무시. (실시간 신호만 매수)<br>
+                                ❷ 장전 '매도' 대상은 서버에 쏘지 않고 메모리 큐(Queue)에만 홀드.<br>
+                                ❸ 08:50~09:00 사이 주가가 반등(조건이탈)하면 큐에서 몰래 삭제 (허수 방어).<br>
+                                ❹ 09:00:00 정각에 큐에 남은 진짜 종목만 당일 시가로 일괄 시장가 매도.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 10 -->
+                    <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">10</span>
+                            <h3 class="text-xl font-bold text-white">10. 마우스 클릭 콘솔 프리징 방어</h3>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="mouse-pointer-click" class="w-4 h-4 text-amber-400"></i> 문제</span>
+                                백그라운드 무인 구동 중, 윈도우 콘솔 창을 마우스로 잘못 클릭하면 시스템이 일시 정지(프리징) 되는 윈도우 OS의 고질적 문제.
+                            </div>
+                            <div class="bg-emerald-900/30 text-emerald-200 p-4 rounded-xl text-sm border border-emerald-800/50 text-left">
+                                <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> 해결</span>
+                                Python <code class="bg-emerald-950 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-900">ctypes</code> 라이브러리를 활용하여 프로그램 실행 즉시 윈도우의 <strong>'빠른 편집 모드'를 강제로 비활성화</strong>시켜 작동 중단 원천 차단.
                             </div>
                         </div>
                     </div>
@@ -275,7 +363,7 @@
                     </div>
                     <h4 class="text-lg font-bold text-white mb-2">0.3초 대기열(Queue) 시스템</h4>
                     <p class="text-sm text-slate-400 leading-relaxed">
-                        "현재 큐에서 1개 진행 중" 로그는 서버 과부하(-200) 에러 방지를 위해 0.3~0.5초 간격 일렬 전송 시스템이 정상 작동함을 의미합니다.
+                        "현재 큐에서 작업 진행 중" 로그는 서버 과부하(-200) 에러 방지를 위해 주문을 0.3~0.5초 간격으로 일렬 전송 및 9시 정각 발사를 위해 대기 중임을 의미합니다.
                     </p>
                 </div>
 
@@ -284,9 +372,9 @@
                     <div class="w-12 h-12 bg-slate-700 text-indigo-400 rounded-xl flex items-center justify-center mb-4 border border-slate-600">
                         <i data-lucide="cpu" class="w-6 h-6"></i>
                     </div>
-                    <h4 class="text-lg font-bold text-white mb-2">N100 셋업 & 다중접속</h4>
+                    <h4 class="text-lg font-bold text-white mb-2">N100 셋업 & 전원 관리</h4>
                     <p class="text-sm text-slate-400 leading-relaxed">
-                        8GB 램 환경에서는 CMD 실행 권장. HTS 중복 접속 시 로직 꼬임(수동 체결 혼선) 리스크가 있으므로 모니터링용 부계정 사용을 강력히 추천합니다.
+                        8GB 램 환경에서는 IDE(파이참) 대신 빌드된 EXE 실행을 권장합니다. 특히 미니 PC의 절전 모드 및 네트워크 꺼짐 옵션은 반드시 해제해야 합니다.
                     </p>
                 </div>
             </div>
@@ -297,7 +385,7 @@
     <footer class="bg-navy-950 text-slate-500 py-8 text-center mt-12 border-t border-slate-800">
         <div class="flex justify-center items-center gap-2 mb-2">
             <i data-lucide="shield-check" class="w-5 h-5 text-emerald-500"></i>
-            <span class="font-semibold text-slate-400">실전 투자용 검증 완료</span>
+            <span class="font-semibold text-slate-400">실전 투자용 검증 완료 및 최적화 적용됨</span>
         </div>
         <p class="text-sm">Copyright &copy; 2026 Algorithmic Trading Bot System. All rights reserved.</p>
     </footer>
