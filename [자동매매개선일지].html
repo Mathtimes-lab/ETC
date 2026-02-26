@@ -108,11 +108,20 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
                     <!-- Item 1 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:text-right">
-                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                        <div class="flex flex-wrap items-center md:justify-end gap-3 mb-4">
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.14</span>
                             <h3 class="text-xl font-bold text-white">1. 장 마감 시 미체결 취소 오류 해결</h3>
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">1</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"15시 20분에 미체결 주문 일괄 취소하려는데 RC4061 에러가 뜨고 취소가 안 돼. 이유가 뭐야?"</p>
+                            </div>
+                            
                             <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
                                 15시 20분에 미체결된 매수 주문 일괄 취소 시, <code class="bg-red-950 px-1.5 py-0.5 rounded text-red-300 border border-red-900">RC4061</code> 에러 발생 및 취소 실패. (원주문번호 누락)
@@ -126,11 +135,20 @@
 
                     <!-- Item 2 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24">
-                        <div class="flex items-center gap-3 mb-4">
+                        <div class="flex flex-wrap items-center gap-3 mb-4">
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">2</span>
                             <h3 class="text-xl font-bold text-white">2. 장외 시간 침묵 및 자동 가동</h3>
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.16</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"새벽에 미리 프로그램을 켜두면 불필요한 로그만 계속 뜨는데, 장 시작 전까지 조용히 대기하다가 8시 50분에 알아서 시작하게 할 수 없을까?"</p>
+                            </div>
+
                             <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="target" class="w-4 h-4 text-amber-400"></i> 요구사항</span>
                                 새벽에 미리 켜두어도 장 시작 시간에 맞춰 동작하고, 불필요한 로그 출력을 방지.
@@ -158,11 +176,20 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
                     <!-- Item 3 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:text-right">
-                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                        <div class="flex flex-wrap items-center md:justify-end gap-3 mb-4">
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.18</span>
                             <h3 class="text-xl font-bold text-white">3. 다중 전략 개별 운용 시스템</h3>
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">3</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"조건식을 여러 개 돌릴 건데, A조건식으로 산 건 A매도식으로만 팔게 전략별로 독립 운용되게 분리할 수 있어?"</p>
+                            </div>
+
                             <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="target" class="w-4 h-4 text-amber-400"></i> 요구사항</span>
                                 다수의 조건식 동시 운용 시, 전략별 전용 매도식과 매수 금액 독립 설정 필요.
@@ -176,11 +203,20 @@
 
                     <!-- Item 4 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24">
-                        <div class="flex items-center gap-3 mb-4">
+                        <div class="flex flex-wrap items-center gap-3 mb-4">
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">4</span>
                             <h3 class="text-xl font-bold text-white">4. 당일 재매수 및 비정상 매도 방지</h3>
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.20</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"장중에 프로그램을 껐다 켜니까 오늘 이미 팔았던 종목을 메모리 초기화돼서 또 사버려. 이거 어떻게 막아?"</p>
+                            </div>
+
                             <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
                                 장중 재시작 시 메모리 초기화로 인한 <strong class="text-red-300">재매수</strong> 및 <strong class="text-red-300">오매도</strong> 현상 발생.
@@ -194,11 +230,20 @@
 
                     <!-- Item 5 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:mt-8 md:text-right">
-                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                        <div class="flex flex-wrap items-center md:justify-end gap-3 mb-4">
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.23</span>
                             <h3 class="text-xl font-bold text-white">5. '상투 잡기' 원천 차단</h3>
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">5</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"오전에 돈이 없어서 스킵된 급등주를, 오후에 예수금 생겼다고 고점(상투)에서 시장가로 다 추격 매수해버리네. 방어 로직 넣어줘."</p>
+                            </div>
+
                             <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
                                 예수금 부족으로 놓친 오전 급등주를 오후에 예수금 확보 시 고점에서 추격 매수(상투 잡기)하는 치명적 오류.
@@ -226,11 +271,20 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
                     <!-- Item 6 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3">
-                        <div class="flex items-center gap-3 mb-4">
+                        <div class="flex flex-wrap items-center gap-3 mb-4">
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">6</span>
                             <h3 class="text-xl font-bold text-white">6. 20종목 초과 보유 시 잔고 누락 해결</h3>
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.24</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"재매수 방지 넣었는데도 종목이 20개가 넘어가니까 21번째 종목부터는 잔고를 못 읽고 또 사버려. 키움 연속조회 문제 같아."</p>
+                            </div>
+
                             <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i> 문제</span>
                                 재매수 방지 로직 적용 후에도, API가 한 번에 20종목까지만 전송하여 21번째 종목부터 잔고를 인식하지 못하고 재매수 발생.
@@ -258,11 +312,20 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20">
                     <!-- Item 7 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:text-right">
-                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                        <div class="flex flex-wrap items-center md:justify-end gap-3 mb-4">
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.26</span>
                             <h3 class="text-xl font-bold text-white">7. 매수 목표가 산정 로직 심플화</h3>
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">7</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"3일선과 5일선의 골든크로스금액을 기준으로 하는 매수목표가 로직을 지우고, 깔끔하게 전일종가대비 5% 상승한 금액으로만 설정하게 변경할거야."</p>
+                            </div>
+
                             <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="trending-up" class="w-4 h-4 text-amber-400"></i> 요구사항</span>
                                 3일/5일 이동평균선 골든크로스를 고려한 목표가 산정이 과도하게 보수적이라는 판단.
@@ -277,11 +340,20 @@
                     <!-- Item 8 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24 border-red-500/30 relative overflow-hidden">
                         <div class="absolute top-0 right-0 w-2 h-full bg-red-500/50"></div>
-                        <div class="flex items-center gap-3 mb-4">
+                        <div class="flex flex-wrap items-center gap-3 mb-4">
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">8</span>
                             <h3 class="text-xl font-bold text-white">8. 치명적 미수금(풀매수) 리스크 방어</h3>
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.26</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"로그 보니까 내 실제 현금은 50만원 남짓인데 주문가능금액이 1380만원으로 떠. 미수 한도 땡겨오는 거 같은데 위험한 거 아니야?"</p>
+                            </div>
+
                             <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="shield-alert" class="w-4 h-4 text-red-400"></i> 문제 (반대매매 위험)</span>
                                 기존 '주문가능금액' 필드가 <strong class="text-red-300">미수(대출) 레버리지가 포함된 최대 한도</strong>를 불러와, 내 현금을 초과하여 주식을 풀매수할 수 있는 대형 사고 위험성 발견.
@@ -296,11 +368,20 @@
                     <!-- Item 9 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-1 md:col-end-2 md:mt-8 md:text-right border-indigo-500/30 relative overflow-hidden">
                         <div class="absolute top-0 left-0 w-2 h-full bg-indigo-500/50"></div>
-                        <div class="flex items-center md:justify-end gap-3 mb-4">
+                        <div class="flex flex-wrap items-center md:justify-end gap-3 mb-4">
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.26</span>
                             <h3 class="text-xl font-bold text-white">9. 동시호가 허수 방어 및 시가 매도</h3>
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">9</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"장 시작할 때 매도대상 3개가 큐에 대기 중이라고 했는데 오늘 실제 매도된 건 1개뿐이야. 장전에 포착된 걸 시가에 바로 팔게 할 순 없나?"</p>
+                            </div>
+
                             <div class="bg-red-900/30 text-red-200 p-4 rounded-xl text-sm border border-red-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="swords" class="w-4 h-4 text-red-400"></i> 딜레마</span>
                                 장전(08:50)에 포착된 매도 종목을 미리 주문하면 <strong class="text-red-300">세력의 허수 호가 장난</strong>에 당할 수 있고, 매수 종목을 사면 <strong class="text-red-300">갭상승 뇌동매매</strong> 위험이 큼.
@@ -317,11 +398,20 @@
 
                     <!-- Item 10 -->
                     <div class="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300 md:col-start-2 md:col-end-3 md:mt-24">
-                        <div class="flex items-center gap-3 mb-4">
+                        <div class="flex flex-wrap items-center gap-3 mb-4">
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-brand-500 text-white font-bold shrink-0 shadow-lg ring-4 ring-navy-900">10</span>
                             <h3 class="text-xl font-bold text-white">10. 마우스 클릭 콘솔 프리징 방어</h3>
+                            <span class="text-xs text-brand-300 font-mono bg-navy-900/80 px-2.5 py-1 rounded border border-brand-800 shadow-sm">2026.02.26</span>
                         </div>
                         <div class="space-y-4">
+                            <!-- 사용자 질문 블록 -->
+                            <div class="bg-indigo-950/40 border-l-4 border-indigo-500 p-4 rounded-r-xl text-sm text-left shadow-inner">
+                                <span class="font-bold flex items-center gap-2 mb-1 text-indigo-300">
+                                    <i data-lucide="message-circle-question" class="w-4 h-4"></i> 최초 문제 제기
+                                </span>
+                                <p class="text-indigo-100/90 italic leading-relaxed">"N100에서 실행파일(exe)로 돌리는데 10분쯤 지나고 그냥 멈춰서 커서만 깜빡거려. 내가 실수한 게 있을까?"</p>
+                            </div>
+
                             <div class="bg-amber-900/30 text-amber-200 p-4 rounded-xl text-sm border border-amber-800/50 text-left">
                                 <span class="font-bold flex items-center gap-2 mb-1"><i data-lucide="mouse-pointer-click" class="w-4 h-4 text-amber-400"></i> 문제</span>
                                 백그라운드 무인 구동 중, 윈도우 콘솔 창을 마우스로 잘못 클릭하면 시스템이 일시 정지(프리징) 되는 윈도우 OS의 고질적 문제.
