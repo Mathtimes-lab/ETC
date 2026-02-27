@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quant Trading Strategy Consulting Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f8f9fa;
+            color: #1a202c;
+        }
+        .title-font {
+            font-family: 'Playfair Display', serif;
+        }
+        .gradient-text {
+            background: linear-gradient(90deg, #1e3a8a, #3182ce);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+        }
+        .section-tag {
+            background-color: #edf2f7;
+            color: #2b6cb0;
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            display: inline-block;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body class="antialiased pb-20">
+
+    <!-- Header / Hero Section -->
+    <header class="bg-gray-900 text-white py-20 px-6 sm:px-12 lg:px-24 border-b-8 border-blue-600 relative overflow-hidden">
+        <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#4299e1 1px, transparent 1px); background-size: 30px 30px;"></div>
+        <div class="max-w-6xl mx-auto relative z-10">
+            <p class="text-blue-400 font-bold tracking-widest text-sm mb-4 uppercase">System Trading Architecture & Optimization</p>
+            <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold mb-6 leading-tight title-font">
+                급등주 돌파 전략<br><span class="text-blue-300">고도화 컨설팅 리포트</span>
+            </h1>
+            <p class="text-gray-300 text-lg md:text-xl max-w-2xl leading-relaxed">
+                자금 관리부터 시장 상황 필터링, 데이터 구조 설계 및 실전 최적화까지. 백테스트와 실전의 괴리를 없애고 수익을 극대화하기 위한 전문가의 인사이트 요약본.
+            </p>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-6 sm:px-12 lg:px-24 mt-16 space-y-24">
+
+        <!-- Section 1: 자금 관리 및 배분 -->
+        <section>
+            <div class="mb-10 text-center sm:text-left">
+                <span class="section-tag">PART 01</span>
+                <h2 class="text-3xl font-bold text-gray-800">자금 배분과 딜레마 (Capital Allocation)</h2>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="card p-8 border-t-4 border-red-500">
+                    <h3 class="text-xl font-bold mb-4 flex items-center"><span class="text-2xl mr-2">⚖️</span> 10슬롯 제한의 함정</h3>
+                    <p class="text-gray-600 font-bold mb-2">Q. 슬롯이 10개면 장이 나쁠 땐 다 사고, 불장일 땐 시드를 다 써서 절반밖에 못 먹는 것 아닌가요?</p>
+                    <p class="text-gray-700 leading-relaxed text-sm">
+                        A. 100% 정확한 통찰입니다. 이를 <strong>'자본 제약으로 인한 기회비용(Capital Constraint Bias)'</strong>이라고 합니다. 하락장에서는 휩쏘 종목을 다 사서 손실을 온몸으로 맞고, 상승장에서는 예수금 부족으로 진짜 대장주를 놓치는 현상입니다. 이를 극복하려면 반드시 <strong>종목 간 우선순위(거래대금순 등) 로직</strong>과 <strong>시장 상황 필터</strong>가 필요합니다.
+                    </p>
+                </div>
+                <div class="card p-8 border-t-4 border-green-500">
+                    <h3 class="text-xl font-bold mb-4 flex items-center"><span class="text-2xl mr-2">💰</span> 자연적 노출 조절 (Auto-Scaling)</h3>
+                    <p class="text-gray-600 font-bold mb-2">Q. 슬롯을 무한정 늘려서 검색되는 모든 종목을 다 사면 되지 않나요?</p>
+                    <p class="text-gray-700 leading-relaxed text-sm">
+                        A. 훌륭한 접근입니다. 시장이 좋을 땐 비중이 100%가 되고, 나쁠 땐 현금 비중이 늘어나는 <strong>'자연적 노출 조절'</strong> 기법입니다. 하지만 극단적인 불장을 대비해 예수금을 너무 크게 잡아두면, 평상시에는 돈이 노는 <strong>'현금 끌림 현상(Cash Drag)'</strong>이 발생해 계좌 전체 수익률(ROE)이 떨어집니다. 상위 80% 기회를 커버하는 수준의 '스위트 스팟(Sweet Spot)' 슬롯 개수를 찾는 것이 중요합니다.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: 시장 상황 필터 -->
+        <section>
+            <div class="mb-10 text-center sm:text-left">
+                <span class="section-tag">PART 02</span>
+                <h2 class="text-3xl font-bold text-gray-800">시장 상황 필터링 (Market Regime Filters)</h2>
+            </div>
+            <div class="card p-8 mb-8 relative overflow-hidden">
+                <div class="absolute top-0 right-0 p-8 opacity-10 text-8xl">📈</div>
+                <h3 class="text-xl font-bold mb-4 text-blue-800">가장 효과적인 지수 필터링 방법</h3>
+                <ul class="space-y-4 text-gray-700">
+                    <li class="flex items-start">
+                        <span class="text-blue-500 font-bold mr-3 mt-1">1.</span>
+                        <div>
+                            <strong class="text-gray-900">ADR (등락비율) 필터 도입 (초강력 추천)</strong><br>
+                            가격(지수) 필터보다 본질적인 투심 지표입니다. <strong>"코스닥 20일 ADR 80% 이상"</strong>일 때만 매매하여, 하락 종목이 압도적으로 많은 패닉장을 완벽히 회피합니다. (영웅문 조건식 구현 가능, HTS는 진짜 값을 제공)
+                        </div>
+                    </li>
+                    <li class="flex items-start">
+                        <span class="text-blue-500 font-bold mr-3 mt-1">2.</span>
+                        <div>
+                            <strong class="text-gray-900">10일선 기울기 vs 위치</strong><br>
+                            기울기는 후행성이 강해 폭락 초기를 피하기 어렵습니다. <strong>"코스닥 지수가 20일 이평선(생명선) 위에 있을 때"</strong>로 설정하는 것이 단기 매매에서 휩쏘를 방지하는 정석입니다.
+                        </div>
+                    </li>
+                    <li class="flex items-start">
+                        <span class="text-blue-500 font-bold mr-3 mt-1">3.</span>
+                        <div>
+                            <strong class="text-gray-900">당일 시가(Open)를 활용한 미래참조 방지</strong><br>
+                            미국 나스닥 지수를 직접 조건식에 넣을 수 없다면, <strong>"당일 코스닥 시가가 전일 종가 대비 -1.5% 이하로 폭락 출발"</strong> 하거나 <strong>"시가부터 20일선을 깨고 시작"</strong>하는 날을 필터링하는 것이 간밤의 글로벌 악재를 회피하는 가장 훌륭한 방법입니다.
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Section 3: 시스템 최적화 원칙 -->
+        <section>
+            <div class="mb-10 text-center sm:text-left">
+                <span class="section-tag">PART 03</span>
+                <h2 class="text-3xl font-bold text-gray-800">조건식 최적화 및 함정 회피 (Optimization)</h2>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- 미래 참조 오류 -->
+                <div class="card p-8 border-l-4 border-yellow-500">
+                    <h3 class="text-lg font-bold mb-3">⚠️ 미래참조(Look-ahead Bias) 오류 주의</h3>
+                    <p class="text-gray-700 text-sm leading-relaxed mb-4">
+                        장중 돌파 매매를 '일봉'으로 백테스트 할 때 가장 치명적인 오류입니다. 당일 이평선(<code>[0]</code>)을 조건으로 쓰면, 장중에는 정배열이었다가 종가에 꼬리를 달고 역배열로 끝난 종목을 <strong>'애초에 안 산 것'</strong>처럼 영악하게 걸러냅니다.
+                    </p>
+                    <p class="text-sm font-bold text-blue-700 bg-blue-50 p-3 rounded">
+                        솔루션: 진입 판단을 위한 이평선(10선, 20선, 60선) 조건은 반드시 당일이 아닌 전일(<code>[-1]</code>) 기준으로 확정된 값을 사용해야 합니다.
+                    </p>
+                </div>
+
+                <!-- 탑다운 최적화 -->
+                <div class="card p-8 border-l-4 border-indigo-500">
+                    <h3 class="text-lg font-bold mb-3">🛠️ Top-Down 조건식 제거 순서</h3>
+                    <p class="text-gray-700 text-sm leading-relaxed mb-4">
+                        손실 구간을 잘라낼 때 RSI부터 건드리면 '과최적화(Curve-fitting)'의 함정에 빠집니다. 시장이 나빠서 진 손실을 지표 탓으로 돌리게 되기 때문입니다.
+                    </p>
+                    <ol class="text-sm text-gray-600 space-y-2 list-decimal list-inside font-semibold ml-2">
+                        <li><span class="text-gray-800">지수 필터</span> (하락장, 갭락 제거)</li>
+                        <li><span class="text-gray-800">거래대금</span> (호가창 얇은 잡주 제거)</li>
+                        <li><span class="text-gray-800">차트 셋업</span> (과도한 밴드폭, 추격매수 제거)</li>
+                        <li><span class="text-gray-800">추세 강도</span> (ADX 횡보 구간 제거)</li>
+                        <li><span class="text-gray-800">오실레이터</span> (RSI, ATR 미세조정)</li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: 실전 투입을 위한 팁 -->
+        <section>
+            <div class="mb-10 text-center sm:text-left">
+                <span class="section-tag">PART 04</span>
+                <h2 class="text-3xl font-bold text-gray-800">전문가의 실전 유니버스 & 지표 (Pro Tips)</h2>
+            </div>
+            <div class="card p-8 bg-gray-900 text-white">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+                    <div>
+                        <h3 class="text-xl font-bold mb-4 text-blue-300">🎯 시총 대신 '평균 거래대금'</h3>
+                        <p class="text-gray-300 text-sm leading-relaxed">
+                            "코스피 상위 400, 코스닥 상위 300"은 돌파 매매에 너무 무겁습니다. 대신 <strong>"최근 20일 평균 거래대금 50억~100억 이상"</strong>을 조건으로 삼으십시오. 테마가 돌고 돈이 몰리는 '살아 움직이는 종목'들만 알아서 필터링되며 슬리피지도 방어됩니다. (단, 동전주는 제외)
+                        </p>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold mb-4 text-blue-300">🔍 추가해야 할 3가지 핵심 지표</h3>
+                        <ul class="text-gray-300 text-sm space-y-3">
+                            <li><strong>개별 종목 시가 갭:</strong> 전일 대비 시가가 너무 높게(예: 5% 이상) 시작한 종목의 돌파는 상투일 확률이 높습니다.</li>
+                            <li><strong>라운드 피겨 필터:</strong> 만 원, 5만 원 등 호가 단위가 변하는 구간은 슬리피지와 매물대 저항이 극심합니다.</li>
+                            <li><strong>MDD (최대 낙폭):</strong> 멘탈 관리를 위해 단순히 수익금이 아닌, 중간에 계좌가 얼마나 녹아내렸는지를 반드시 확인해야 합니다.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 5: 시각화 및 데이터 아키텍처 -->
+        <section class="pb-10">
+            <div class="mb-10 text-center sm:text-left">
+                <span class="section-tag">PART 05</span>
+                <h2 class="text-3xl font-bold text-gray-800">데이터 아키텍처 및 시각화 (Architecture)</h2>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="card p-6 text-center">
+                    <div class="text-4xl mb-4">🗂️</div>
+                    <h4 class="font-bold text-lg mb-2">공통 지수 데이터 독립 (Global Load)</h4>
+                    <p class="text-sm text-gray-600">지수 데이터를 개별 종목에 넣지 않고 메인 폴더에 독립시켜 파이썬 메모리에 한 번만 올려 매핑하는 방식은 속도와 유지보수를 극대화합니다.</p>
+                </div>
+                <div class="card p-6 text-center">
+                    <div class="text-4xl mb-4">📊</div>
+                    <h4 class="font-bold text-lg mb-2">수익/손실 막대그래프의 맹점</h4>
+                    <p class="text-sm text-gray-600">단순 총수익 막대는 게임수가 많은 구간이 유리해 보입니다. 양보다 질을 보여주는 <strong>'Profit Factor(수익금/손실금)'</strong>를 시각화해야 합니다.</p>
+                </div>
+                <div class="card p-6 text-center">
+                    <div class="text-4xl mb-4">📈</div>
+                    <h4 class="font-bold text-lg mb-2">히트맵 & 누적 수익선 차트</h4>
+                    <p class="text-sm text-gray-600">지표 간의 시너지를 찾는 2차원 히트맵과, 수익이 안정적으로 쌓이는지(MDD)를 보여주는 선 그래프가 프로들의 핵심 분석 도구입니다.</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-gray-800 text-center text-gray-400 py-8 mt-12 border-t border-gray-700">
+        <p class="text-sm">Created with AI Consultant • System Trading Optimization Report</p>
+    </footer>
+
+</body>
+</html>
