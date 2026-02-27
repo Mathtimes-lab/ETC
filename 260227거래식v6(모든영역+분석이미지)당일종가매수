@@ -1,0 +1,1414 @@
+# ==========================================
+# 📊 [상세 거래 내역 리포트] 일봉 급등주 돌파 + 60이평(VWAP대체) + 밴드폭/RSI/ATR 구간 분석
+# =======================================================================================================================
+# 종목명          | 매수일       | 매수시간 | 매도시간 | 보유(일) |     매수가 |     매도가 | 돌파상승률 |  수익률 | 최대수익률 |   RSI |  ATR(%) |   ADX | 밴드폭(%)
+# -----------------------------------------------------------------------------------------------------------------------
+# ...
+# =======================================================================================================================
+import matplotlib
+
+# 화면 표시 없이 내부에서 이미지 생성 (충돌 방지)
+matplotlib.use('Agg')
+
+import backtrader as bt
+import pandas as pd
+import numpy as np  # 캔들 차트 연산을 위해 추가
+import os
+import math
+import unicodedata
+from datetime import time, timedelta
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+# ==========================================
+# 💡 [사용자 설정] 전체 환경 및 매매/지표 조건 수치 설정
+# 아래 값들을 수정하여 다양한 조건으로 백테스트를 진행할 수 있습니다.
+# ==========================================
+
+# [1] 데이터 및 환경 설정
+DATA_FOLDER = "stock_data_500ten"  # 📂 대상 데이터 폴더명
+MARKET_DATA_FOLDER = "common_market_data"  # 📂 공통 지수 데이터 폴더명 (새로 추가)
+CHART_FOLDER = "saved_charts_min"  # 📂 수익률 차트 저장 폴더명
+ANALYSIS_CHART_FOLDER = "saved_analysis_charts"  # 📂 성과 분석 차트(막대/선 그래프) 저장 폴더명
+START_DATE = "2015-01-01"  # 📅 백테스트 시작일 (YYYY-MM-DD)
+END_DATE = "2099-12-31"  # 📅 백테스트 종료일 (특정하지 않을 경우 미래 날짜 유지)
+INITIAL_CASH = 100000000  # 💰 백테스트 시작 총 예수금 (기본 1억)
+BET_CASH = 10000000  # 💵 1회 진입 시 매수(타겟) 금액 (기본 1000만 원)
+SLIPPAGE_PCT = 0.005  # 💸 분석 리포트용 슬리피지 페널티 (0.005 = 0.5%)
+
+# [2] 매수(진입) 조건 설정
+TARGET_PCT = 0.015  # 🚀 돌파 상승률: 전일 종가 대비 당일 종가 최소 상승률 (0.07 = 7% 이상)
+GAP_MIN = -0.30  # 📉 최소 갭상승률 (-0.05 = -5%)
+GAP_MAX = 0.30  # 📈 최대 갭상승률 (0.05 = 5%)
+VOL_SURGE = 3.0  # 💥 거래량 폭증: 평균 대비 당일 거래량 배수 (3.0 = 300% 이상)
+VOL_PERIOD = 20  # 📊 평균 거래량을 산출할 기간(일)
+MA_TREND_FAST = 10  # 📈 정배열 판별용 단기 이평선
+MA_TREND_SLOW = 20  # 📉 정배열 판별용 중기 이평선
+MA_VWAP_PROXY = 60  # 🛡️ 세력선(단가) 방어용 장기 이평선 (이 선 위에 있을 때만 매수)
+PREV_MA_ALIGN = 0  # 📈 1봉전 기준 단기-중기 매도선(3선, 5선) 정배열 여부 (1: 적용, 0: 미적용)
+PREV_TRADE_VAL_MIN = 000000000  # 💰 1봉전 기준 최소 거래대금 하한선 (기본 50억)
+
+# [3] 보조지표 필터 범위 설정
+BOLL_PERIOD = 20  # 〰️ 볼린저밴드 기간
+BOLL_DEV = 2.0  # 〰️ 볼린저밴드 표준편차 승수
+BOLL_BW_MIN = 0.00  # 〰️ 밴드폭 하한선 (해당 수치 미만이면 진입 금지)
+BOLL_BW_MAX = 999.0  # 〰️ 밴드폭 상한선 (해당 수치 초과면 진입 금지, 999는 사실상 무제한)
+
+RSI_PERIOD = 14  # 📈 RSI 계산 기간
+RSI_MIN = 0  # 📈 RSI 하한선 (이하일 경우 진입 금지)
+RSI_MAX = 100  # 📈 RSI 상한선 (이상일 경우 진입 금지)
+
+# [4] 매도(청산) 조건 설정
+MA_SELL_FAST = 3  # 🏃‍♂️ 청산 데드크로스 판별용 단기 이평선
+MA_SELL_SLOW = 5  # 🚶‍♂️ 청산 데드크로스 판별용 중기 이평선
+
+
+# ==========================================
+
+# -----------------------------------------------------------------------------
+# [추가] 분석 차트 생성 함수 (막대 + 선 그래프)
+# -----------------------------------------------------------------------------
+def save_analysis_chart(title, stats_dict, buckets, folder_path):
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+
+    x_labels = []
+    gross_profits = []
+    gross_losses = []
+    avg_returns = []
+
+    for b in buckets:
+        s = stats_dict.get(b, {'gross_profit': 0, 'gross_loss': 0, 'games': 0, 'sum_profit_pct': 0})
+        x_labels.append(b)
+        gross_profits.append(s['gross_profit'])
+        gross_losses.append(s['gross_loss'])  # 손실을 양수로 표시하여 막대 비교
+        if s['games'] > 0:
+            avg_returns.append(s['sum_profit_pct'] / s['games'])
+        else:
+            avg_returns.append(0)
+
+    fig, ax1 = plt.subplots(figsize=(14, 6))
+
+    if os.name == 'nt':
+        plt.rcParams['font.family'] = 'Malgun Gothic'
+    else:
+        plt.rcParams['font.family'] = 'AppleGothic'
+    plt.rcParams['axes.unicode_minus'] = False
+
+    x = np.arange(len(x_labels))
+    width = 0.4
+
+    # 수익(빨강)과 손실(파랑) 막대그래프
+    ax1.bar(x - width / 2, gross_profits, width, label='총수익', color='#ff9999', edgecolor='red')
+    ax1.bar(x + width / 2, gross_losses, width, label='총손실', color='#99ccff', edgecolor='blue')
+
+    ax1.set_ylabel('금액 (원)', color='black')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(x_labels, rotation=45, ha='right')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, axis='y', linestyle='--', alpha=0.5)
+
+    # 평균 수익률 선그래프
+    ax2 = ax1.twinx()
+    ax2.plot(x, avg_returns, color='green', marker='o', linestyle='-', linewidth=2, label='평균수익률(%)')
+    ax2.set_ylabel('평균 수익률 (%)', color='green')
+    ax2.tick_params(axis='y', labelcolor='green')
+    ax2.legend(loc='upper right')
+
+    plt.title(title)
+    plt.tight_layout()
+
+    safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c in ' %()_-']).rstrip()
+    plt.savefig(os.path.join(folder_path, f"{safe_title}.png"))
+    plt.close()
+
+
+# -----------------------------------------------------------------------------
+# [추가] 한글/영문 콘솔 출력 정렬을 위한 텍스트 너비 계산 함수
+# 한글 등 동아시아 문자는 1.7칸, 영문/숫자는 1칸으로 계산하여 시각적 폭을 반환합니다.
+# -----------------------------------------------------------------------------
+def calc_width(s):
+    return int(round(sum(1.7 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in str(s))))
+
+
+def lpad(s, w):
+    s = str(s)
+    return s + ' ' * max(0, w - calc_width(s))
+
+
+def rpad(s, w):
+    s = str(s)
+    return ' ' * max(0, w - calc_width(s)) + s
+
+
+# -----------------------------------------------------------------------------
+# CustomPandasData 클래스
+# -----------------------------------------------------------------------------
+class CustomPandasData(bt.feeds.PandasData):
+    lines = ('rsi',)
+    params = (
+        ('datetime', None),
+        ('open', 'Open'),
+        ('high', 'High'),
+        ('low', 'Low'),
+        ('close', 'Close'),
+        ('volume', 'Volume'),
+        ('openinterest', None),
+        ('rsi', 'rsi'),
+    )
+
+
+# -----------------------------------------------------------------------------
+# RSI 계산 함수 (데이터 전처리용)
+# -----------------------------------------------------------------------------
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+
+# -----------------------------------------------------------------------------
+# [수정] 수익률 Top 5 / Bottom 5 차트 저장 함수 (봉 차트, 이평선, 구간 변경, 날짜명)
+# -----------------------------------------------------------------------------
+def save_chart(t, folder, prefix, rank):
+    try:
+        df = pd.read_excel(t['file_path'])
+        df.columns = [c.strip() for c in df.columns]
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
+                      '일자': 'Date', '체결시간': 'Date'}
+        df = df.rename(columns=rename_map)
+
+        if 'Date' in df.columns:
+            if pd.api.types.is_numeric_dtype(df['Date']):
+                df['Date'] = df['Date'].astype(str)
+            df['Date'] = pd.to_datetime(df['Date'])
+            df = df.sort_values('Date').set_index('Date')
+        else:
+            return
+
+        # 캔들을 그리기 위해 Open, High, Low도 숫자형 변환에 포함
+        cols_to_numeric = ['Close', 'Open', 'High', 'Low']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '')
+                df[col] = pd.to_numeric(df[col], errors='coerce').abs()
+
+        # 3분, 5분 이동평균선 계산 (데이터를 자르기 전에 미리 전체에서 계산)
+        df['MA3'] = df['Close'].rolling(window=3).mean()
+        df['MA5'] = df['Close'].rolling(window=5).mean()
+
+        open_dt = pd.to_datetime(f"{t['open_date']} {t['open_time']}")
+        close_dt = pd.to_datetime(f"{t['date']} {t['close_time']}")
+
+        # 시간 기준이 아닌 봉 갯수(Index) 기준으로 자르기
+        try:
+            buy_loc = df.index.get_indexer([open_dt], method='nearest')[0]
+            sell_loc = df.index.get_indexer([close_dt], method='nearest')[0]
+        except Exception:
+            return
+
+        # 매수 30봉 전부터 매도 10봉 후까지
+        start_idx = max(0, buy_loc - 30)
+        end_idx = min(len(df) - 1, sell_loc + 10)
+
+        plot_df = df.iloc[start_idx: end_idx + 1]
+
+        if plot_df.empty:
+            return
+
+        plt.figure(figsize=(10, 5))
+
+        # 한글 폰트 설정
+        if os.name == 'nt':
+            plt.rcParams['font.family'] = 'Malgun Gothic'
+        else:
+            plt.rcParams['font.family'] = 'AppleGothic'
+        plt.rcParams['axes.unicode_minus'] = False
+
+        # 캔들(봉) 차트 수동 그리기
+        x = np.arange(len(plot_df))
+        colors = np.where(plot_df['Close'] >= plot_df['Open'], 'red', 'blue')
+
+        # 꼬리(High-Low)
+        plt.vlines(x, plot_df['Low'], plot_df['High'], color=colors, linewidth=1)
+        # 몸통(Open-Close)
+        plt.bar(x, np.abs(plot_df['Close'] - plot_df['Open']), bottom=np.minimum(plot_df['Open'], plot_df['Close']),
+                color=colors, width=0.6)
+
+        # 3분/5분 이동평균선 그리기
+        plt.plot(x, plot_df['MA3'], color='orange', linewidth=1.5, label='3선')
+        plt.plot(x, plot_df['MA5'], color='green', linewidth=1.5, label='5선')
+
+        # 진입/청산 타점 마킹 (상대적 위치 x 좌표)
+        buy_x = buy_loc - start_idx
+        sell_x = sell_loc - start_idx
+        plt.scatter(buy_x, t['entry_price'], color='magenta', marker='^', s=150, label='Buy', zorder=5)
+        plt.scatter(sell_x, t['exit_price'], color='cyan', marker='v', s=150, label='Sell', zorder=5)
+
+        # X축을 일봉에 맞게 YYYY-MM-DD 포맷으로 변경
+        tick_step = max(1, len(plot_df) // 10)
+        plt.xticks(x[::tick_step], plot_df.index.strftime('%Y-%m-%d')[::tick_step], rotation=45)
+
+        plt.title(f"[{prefix} {rank}] {t['stock_name']} (수익률: {t['profit_pct']:.2f}%)")
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.legend()
+        plt.tight_layout()
+
+        # 파일명 안전하게 변환 및 매수 날짜 추가
+        safe_name = "".join([c for c in t['stock_name'] if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
+        safe_date = str(t['open_date']).replace('-', '')
+        filename = f"{prefix}_{rank}_{safe_date}_{safe_name}.png"
+
+        plt.savefig(os.path.join(folder, filename))
+        plt.close()
+    except Exception as e:
+        plt.close()
+
+
+# ==========================================
+# [전략] 일봉 급등주 돌파 + 이평선 필터 + 단기 매도
+# ==========================================
+# 💡 [핵심] 상단의 [사용자 설정] 블록 값들이 아래 파라미터로 자동 주입됩니다.
+STRATEGY_PARAMS = (
+    ('target_pct', TARGET_PCT),
+    ('gap_min', GAP_MIN),
+    ('gap_max', GAP_MAX),
+    ('vol_surge', VOL_SURGE),
+    ('vol_period', VOL_PERIOD),
+    ('ma_trend_fast', MA_TREND_FAST),
+    ('ma_trend_slow', MA_TREND_SLOW),
+    ('ma_vwap_proxy', MA_VWAP_PROXY),
+    ('ma_fast', MA_SELL_FAST),
+    ('ma_slow', MA_SELL_SLOW),
+    ('slippage_pct', SLIPPAGE_PCT),
+    ('boll_period', BOLL_PERIOD),
+    ('boll_dev', BOLL_DEV),
+    ('boll_bw_min', BOLL_BW_MIN),
+    ('boll_bw_max', BOLL_BW_MAX),
+    ('rsi_min', RSI_MIN),
+    ('rsi_max', RSI_MAX),
+    ('bet_cash', BET_CASH),
+    ('prev_ma_align', PREV_MA_ALIGN),
+    ('prev_trade_val_min', PREV_TRADE_VAL_MIN),
+    ('debug', False),
+)
+
+
+class CustomDailyStrategy(bt.Strategy):
+    """
+    [상세 전략 설명 및 영웅문 HTS(0156) 조건검색 설정 가이드]
+    ================================================================================
+    이 전략은 일봉 단기매매에 맞춰져 있으며, 영웅문 HTS에서 100% 동일하게 구현 가능합니다.
+
+    📌 [HTS 조건검색 설정 세팅 (0156 화면) - 모든 주기는 '일'로 통일]
+
+    [A] 변동성 돌파 (캔들 하나에서 1.5% 급등 양봉)
+        -> [메뉴] 시세분석 > 가격조건 > 주가등락률
+        -> [설정] 1일주기, 0봉전(현재) 시가 대비 0봉전 종가 등락률 1.5% 이상
+
+    [B] 수급 폭발 (거래량 300% 폭증)
+        -> [메뉴] 시세분석 > 거래량/거래대금 > 거래량비율(n봉)
+        -> [설정] 1일주기, 1봉전 20봉 평균거래량 대비 0봉전 거래량 300% 이상
+
+    [C] 추세 필터 (10선 > 20선 정배열)
+        -> [메뉴] 기술적분석 > 주가이동평균 > 주가이동평균배열(3개)
+        -> [설정] 1일주기, 종가 1 > 종가 10 > 종가 20 (단순)
+
+    [D] 세력/개미 평균단가 상회 필터 (VWAP 완벽 대체 -> 60이평 상회)
+        -> [메뉴] 기술적분석 > 주가이동평균 > 주가이동평균비교
+        -> [설정] 1일주기, [단순]종가 60 < [단순]종가 1 (현재 주가가 60이평선 위에 위치)
+
+    2. 매도 청산 조건 (파이썬 매매 로직)
+       A. 3일선 < 5일선 데드크로스 발생 시 즉시 종가 시장가 청산
+    ================================================================================
+    """
+    params = STRATEGY_PARAMS
+
+    def __init__(self):
+        # 파라미터 값에 따라 동적으로 이동평균선 생성
+        self.ma_fast_line = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_fast)
+        self.ma_slow_line = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_slow)
+
+        self.ma_trend_fast_line = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_trend_fast)
+        self.ma_trend_slow_line = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_trend_slow)
+
+        self.ma_vwap_proxy_line = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_vwap_proxy)
+
+        self.vol_sma = bt.indicators.SimpleMovingAverage(self.data.volume, period=self.p.vol_period)
+
+        # [추가] 20일 거래대금 평균 계산을 위한 데이터
+        self.trade_amt_line = self.data.close * self.data.volume
+        self.trade_amt_sma = bt.indicators.SimpleMovingAverage(self.trade_amt_line, period=20)
+
+        # 보조지표 설정 (분석용으로만 수집)
+        typical_price = (self.data.high + self.data.low + self.data.close) / 3.0
+        self.bband = bt.indicators.BollingerBands(typical_price, period=self.p.boll_period, devfactor=self.p.boll_dev)
+        self.atr = bt.indicators.ATR(self.data, period=14)
+        self.adx = bt.indicators.ADX(self.data, period=14)
+
+        # 수동 포지션 관리용
+        self.my_position = None
+        self.trades_history = []
+        self.peak_price = 0
+
+    def next(self):
+        # [동적 계산] 파라미터로 설정된 이평선들 중 가장 긴 기간의 데이터가 쌓일 때까지 대기
+        if len(self.data) < max(self.p.ma_vwap_proxy + 1, self.p.boll_period + 2, self.p.vol_period + 1,
+                                self.p.ma_trend_slow + 1, self.p.ma_slow + 2, 21):
+            return
+
+        current_date = self.data.datetime.date(0)
+        current_time = self.data.datetime.time(0)
+
+        # ----------------------------------------------------------------------
+        # [1] 보유 중일 때: 매도(청산) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position:
+            if self.data.high[0] > self.peak_price:
+                self.peak_price = self.data.high[0]
+
+            # [복원/동적계산] 데드크로스 방어 가격 계산 (단기 이평선이 중기 이평선을 하향 이탈하게 만드는 예측 가격)
+            # 파라미터 값(F, S)이 어떻게 변하든 범용적으로 계산해내는 수학 공식 적용
+            F = self.p.ma_fast
+            S = self.p.ma_slow
+            sum_F = sum(self.data.close[-i] for i in range(1, F))
+            sum_S = sum(self.data.close[-i] for i in range(1, S))
+            cross_price_raw = (F * sum_S - S * sum_F) / (S - F) if S != F else 0
+            cross_price = round(cross_price_raw)
+
+            sell_signal = False
+            sell_price = 0
+            sell_reason = ""
+
+            # 매도 조건 1: 직전 캔들에 이미 단기선이 중기선 아래로 내려간(데드크로스) 상태라면, 현재 시가에 즉시 시장가 매도
+            if self.ma_fast_line[-1] < self.ma_slow_line[-1]:
+                sell_signal = True
+                sell_price = self.data.open[0]
+                sell_reason = "직전 이미 데드크로스 상태"
+            # 매도 조건 2: 장중 최저가가 데드크로스 방어 가격을 이탈한 경우
+            elif self.data.low[0] <= cross_price:
+                sell_signal = True
+                # 만약 시가부터 갭하락하여 데드크로스 가격 아래에서 출발했다면 시가에 매도
+                if self.data.open[0] < cross_price:
+                    sell_price = self.data.open[0]
+                    sell_reason = "갭하락 데드크로스"
+                # 정상적으로 시작 후 하락하여 터치했다면 해당 가격(cross_price)에 매도
+                else:
+                    sell_price = cross_price
+                    sell_reason = "장중 데드크로스 터치"
+
+            if sell_signal:
+                entry_price = self.my_position['price']
+                buy_size = self.my_position['size']
+                buy_reason = self.my_position['reason']
+                entry_rsi = self.my_position.get('rsi', 0)
+                entry_atr = self.my_position.get('atr', 0)
+                entry_adx = self.my_position.get('adx', 0)
+                entry_bandwidth = self.my_position.get('bandwidth', 0)
+                entry_surge = self.my_position.get('surge_pct', 0)
+                entry_gap_pct = self.my_position.get('gap_pct', 0)
+                entry_trade_amount = self.my_position.get('trade_amount', 0)
+                entry_prev_trade_amount = self.my_position.get('prev_trade_amount', 0)
+                entry_avg_trade_amount_20 = self.my_position.get('avg_trade_amount_20', 0)
+                entry_vol_surge = self.my_position.get('vol_surge_pct', 0)
+                entry_bar = self.my_position.get('entry_bar', len(self))
+                open_date = self.my_position['date']
+                open_time = self.my_position['time']
+
+                # 일봉이므로 hold_days는 보유 캔들(일) 갯수가 됩니다.
+                hold_days = len(self) - entry_bar
+                pnl = (sell_price - entry_price) * buy_size
+                profit_pct = ((sell_price - entry_price) / entry_price) * 100
+                max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+
+                self.trades_history.append({
+                    'open_date': open_date,
+                    'open_time': open_time,
+                    'date': current_date,
+                    'close_time': current_time,
+                    'hold_days': hold_days,
+                    'profit_pct': profit_pct,
+                    'max_profit_pct': max_profit_pct,
+                    'pnl': pnl,
+                    'is_win': pnl > 0,
+                    'entry_price': entry_price,
+                    'exit_price': sell_price,
+                    'entry_rsi': entry_rsi,
+                    'entry_atr': entry_atr,
+                    'entry_adx': entry_adx,
+                    'entry_bandwidth': entry_bandwidth,
+                    'entry_surge': entry_surge,
+                    'entry_gap_pct': entry_gap_pct,
+                    'entry_trade_amount': entry_trade_amount,
+                    'entry_prev_trade_amount': entry_prev_trade_amount,
+                    'entry_avg_trade_amount_20': entry_avg_trade_amount_20,
+                    'entry_vol_surge': entry_vol_surge,
+                    'size': buy_size,
+                    'status': 'Closed',
+                    'buy_reason': buy_reason,
+                    'sell_reason': sell_reason
+                })
+                self.my_position = None
+                self.peak_price = 0
+                return
+
+        # ----------------------------------------------------------------------
+        # [2] 미보유 중일 때: 매수(진입) 조건 확인
+        # ----------------------------------------------------------------------
+        if self.my_position is None:
+            if self.data.close[-1] == 0: return
+
+            # [조건 A-1] 분봉 캔 단일 급등 및 확실한 양봉(Close > Open)
+            surge_pct = (self.data.close[0] / self.data.close[-1]) - 1
+            if surge_pct < self.p.target_pct: return
+            if self.data.close[0] <= self.data.open[0]: return
+
+            # [조건 A-2] 당일 시가 갭상승 범위 필터
+            gap_pct = (self.data.open[0] / self.data.close[-1]) - 1
+            if gap_pct < self.p.gap_min or gap_pct > self.p.gap_max: return
+
+            # [조건 B] 거래량 폭증: 직전 N봉 평균 거래량 대비 M배 이상
+            if self.data.volume[0] < self.vol_sma[-1] * self.p.vol_surge: return
+            actual_vol_surge = (self.data.volume[0] / self.vol_sma[-1] * 100) if self.vol_sma[-1] > 0 else 0
+
+            # [조건 C] 추세 필터: 단기선이 중기선 위에 있는 정배열 상태 (1봉 전 기준 교정)
+            if self.ma_trend_fast_line[-1] <= self.ma_trend_slow_line[-1]: return
+
+            # [조건 D] HTS 구현용 VWAP 대체: 긴 추세 이평선 위에 위치하여 하락장 휩쏘 방지 (1봉 전 기준 교정)
+            if self.data.close[0] <= self.ma_vwap_proxy_line[-1]: return
+
+            # [조건 E] 1봉전 3일선과 5일선의 정배열 여부 (선택 적용)
+            if self.p.prev_ma_align == 1:
+                if self.ma_fast_line[-1] <= self.ma_slow_line[-1]: return
+
+            # [조건 F] 1봉전 거래대금 하한선 필터
+            prev_trade_amount = self.data.close[-1] * self.data.volume[-1]
+            if prev_trade_amount < self.p.prev_trade_val_min: return
+
+            # --- [추후 적용용 보조지표 조건 주석 처리] ---
+            # 밴드폭 필터
+            top = self.bband.lines.top[-1]
+            bot = self.bband.lines.bot[-1]
+            mid = self.bband.lines.mid[-1]
+            if mid == 0: return
+            bandwidth = (top - bot) / mid
+            if bandwidth < self.p.boll_bw_min or bandwidth > self.p.boll_bw_max: return
+
+            # RSI, ADX, ATR 필터
+            if self.data.rsi[-1] >= self.p.rsi_max or self.data.rsi[-1] <= self.p.rsi_min: return
+            # if not (60 <= self.adx[-1] <= 80): return
+            # atr_pct = (self.atr[-1] / self.data.close[0] * 100) if self.data.close[0] > 0 else 0
+            # if not (0.2 < atr_pct < 1.0): return
+            # -----------------------------------------------
+
+            buy_price = self.data.close[0]  # 조건을 만족한 해당 분봉의 종가에 즉시 체결 가정
+            trade_amount = self.data.close[0] * self.data.volume[0]
+
+            cash = self.p.bet_cash
+            size = math.floor(cash / buy_price)
+
+            buy_reason = f"일봉 수급/{self.p.ma_vwap_proxy}선 돌파"
+            self.my_position = {
+                'price': buy_price,
+                'date': current_date,
+                'time': current_time,
+                'size': size,
+                'reason': buy_reason,
+                'rsi': self.data.rsi[-1],
+                'atr': self.atr[-1],
+                'adx': self.adx[-1],
+                'bandwidth': bandwidth,
+                'surge_pct': surge_pct,
+                'gap_pct': gap_pct,
+                'trade_amount': trade_amount,
+                'prev_trade_amount': prev_trade_amount,
+                'avg_trade_amount_20': self.trade_amt_sma[-1],
+                'vol_surge_pct': actual_vol_surge,
+                'entry_bar': len(self)
+            }
+            self.peak_price = buy_price
+
+    def stop(self):
+        # 마지막 캔들 강제 청산 로직
+        if self.my_position:
+            current_date = self.data.datetime.date(0)
+            current_time = self.data.datetime.time(0)
+            current_price = self.data.close[0]
+            entry_price = self.my_position['price']
+            buy_size = self.my_position['size']
+
+            if current_price > self.peak_price:
+                self.peak_price = current_price
+
+            pnl = (current_price - entry_price) * buy_size
+            profit_pct = ((current_price - entry_price) / entry_price) * 100
+            max_profit_pct = ((self.peak_price - entry_price) / entry_price) * 100
+            entry_rsi = self.my_position.get('rsi', 0)
+            entry_atr = self.my_position.get('atr', 0)
+            entry_adx = self.my_position.get('adx', 0)
+            entry_bandwidth = self.my_position.get('bandwidth', 0)
+            entry_surge = self.my_position.get('surge_pct', 0)
+            entry_gap_pct = self.my_position.get('gap_pct', 0)
+            entry_trade_amount = self.my_position.get('trade_amount', 0)
+            entry_prev_trade_amount = self.my_position.get('prev_trade_amount', 0)
+            entry_avg_trade_amount_20 = self.my_position.get('avg_trade_amount_20', 0)
+            entry_vol_surge = self.my_position.get('vol_surge_pct', 0)
+            entry_bar = self.my_position.get('entry_bar', len(self))
+            hold_days = len(self) - entry_bar
+
+            self.trades_history.append({
+                'open_date': self.my_position['date'],
+                'open_time': self.my_position['time'],
+                'date': current_date,
+                'close_time': current_time,
+                'hold_days': hold_days,
+                'profit_pct': profit_pct,
+                'max_profit_pct': max_profit_pct,
+                'pnl': pnl,
+                'is_win': pnl > 0,
+                'entry_price': entry_price,
+                'exit_price': current_price,
+                'entry_rsi': entry_rsi,
+                'entry_atr': entry_atr,
+                'entry_adx': entry_adx,
+                'entry_bandwidth': entry_bandwidth,
+                'entry_surge': entry_surge,
+                'entry_gap_pct': entry_gap_pct,
+                'entry_trade_amount': entry_trade_amount,
+                'entry_prev_trade_amount': entry_prev_trade_amount,
+                'entry_avg_trade_amount_20': entry_avg_trade_amount_20,
+                'entry_vol_surge': entry_vol_surge,
+                'size': buy_size,
+                'status': 'Holding',
+                'buy_reason': '종료 청산',
+                'sell_reason': '종료 청산'
+            })
+
+
+# ==========================================
+# 실행 함수 (단일 구간)
+# ==========================================
+def run_single_backtest(file_path, is_first_run=False):
+    try:
+        df = pd.read_excel(file_path)
+        df.columns = [c.strip() for c in df.columns]
+
+        rename_map = {'현재가': 'Close', '종가': 'Close', '시가': 'Open', '고가': 'High', '저가': 'Low', '거래량': 'Volume',
+                      '일자': 'Date', '체결시간': 'Date'}
+        df = df.rename(columns=rename_map)
+
+        if 'Date' in df.columns:
+            if pd.api.types.is_numeric_dtype(df['Date']):
+                df['Date'] = df['Date'].astype(str)
+            df['Date'] = pd.to_datetime(df['Date'])
+            df = df.sort_values('Date').set_index('Date')
+        else:
+            if not isinstance(df.index, pd.DatetimeIndex):
+                return None
+
+        # 기간 필터 적용
+        df = df[(df.index >= START_DATE) & (df.index <= END_DATE)]
+
+        cols_to_numeric = ['Close', 'Open', 'High', 'Low', 'Volume']
+        for col in cols_to_numeric:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '')
+                df[col] = pd.to_numeric(df[col], errors='coerce').abs()
+            else:
+                return None
+
+        df = df.dropna(subset=[c for c in cols_to_numeric if c in df.columns])
+
+        if len(df) >= RSI_PERIOD:
+            df['rsi'] = calculate_rsi(df['Close'], period=RSI_PERIOD)
+            df['rsi'] = df['rsi'].fillna(50)
+        else:
+            df['rsi'] = 50
+
+        # [동적 계산] 전역 파라미터 설정값에 맞춰 필요한 최소 데이터 수량 계산
+        p = dict(STRATEGY_PARAMS)
+        req_len = max(p['ma_vwap_proxy'] + 1, p['boll_period'] + 2, p['vol_period'] + 1, p['ma_trend_slow'] + 1,
+                      p['ma_slow'] + 2, 21)
+
+        if len(df) < req_len:
+            return None
+
+        cerebro = bt.Cerebro(runonce=False)
+        cerebro.broker.setcash(INITIAL_CASH)
+
+        # 파라미터는 Strategy 클래스 내부에 정의된 기본값을 사용하도록 위임
+        cerebro.addstrategy(CustomDailyStrategy, debug=is_first_run)
+
+        cerebro.adddata(CustomPandasData(dataname=df))
+
+        strats = cerebro.run()
+        trades_hist = strats[0].trades_history
+
+        return {
+            'trades': len(trades_hist),
+            'wins': sum(1 for t in trades_hist if t['is_win']),
+            'total_profit': sum(t['pnl'] for t in trades_hist),
+            'history': trades_hist
+        }
+
+    except Exception as e:
+        if is_first_run: print(f"❌ 에러 발생: {e}")
+        return None
+
+
+def main():
+    print(CustomDailyStrategy.__doc__)
+    p = dict(STRATEGY_PARAMS)
+
+    # 출력 텍스트들도 파라미터 값을 그대로 읽어와서 표시하도록 연동
+    print("=== 🎯 [일봉 단기매매 전략] 개별 게임별 상세 성과 리포트 ===")
+    print(
+        f"📌 설정: {p['target_pct'] * 100:.1f}% 급등양봉, 거래량 {int(p['vol_surge'] * 100)}% 폭증, {p['ma_trend_fast']}>{p['ma_trend_slow']}선 정배열, {p['ma_vwap_proxy']}선 이평 상회")
+    print(f"📌 청산: {p['ma_fast']}선/{p['ma_slow']}선 데드크로스 이탈 시 즉시 매도")
+    print(f"📌 기간: {START_DATE} ~ {END_DATE if END_DATE != '2099-12-31' else '현재'}")
+
+    data_dir = DATA_FOLDER
+    if not os.path.exists(data_dir):
+        print(f"🚨 '{data_dir}' 폴더가 없습니다! 데이터를 폴더 안에 넣어주세요.")
+        return
+
+    # ==========================================
+    # [추가] 공통 지수 데이터 로드 및 전처리
+    # ==========================================
+    kospi_idx_df = pd.DataFrame()
+    kosdaq_idx_df = pd.DataFrame()
+
+    def prep_index_df(path):
+        if os.path.exists(path):
+            df = pd.read_excel(path)
+            # 날짜 형식 정리 (YYYYMMDD 또는 YYYY-MM-DD 모두 대응)
+            df['Date'] = pd.to_datetime(df['Date'].astype(str).str.replace('-', ''))
+            df = df.sort_values('Date').set_index('Date')
+
+            # 키움증권 특성상 정수 변환된 지수(x100) 원래대로 보정
+            for col in ['Open', 'High', 'Low', 'Close']:
+                if df[col].mean() > 10000:
+                    df[col] = df[col] / 100.0
+
+            df['MA20'] = df['Close'].rolling(window=20).mean()
+            # 1. 당일 시가의 20일선 대비 이격도 (전일 20일선 기준)
+            df['Open_to_MA20_pct'] = (df['Open'] / df['MA20'].shift(1) - 1) * 100
+            # 3. 전일 종가 대비 당일 시가 등락률
+            df['Open_Gap_pct'] = (df['Open'] / df['Close'].shift(1) - 1) * 100
+
+            # 2. ADR 임시 대용 데이터 산출 (데이터에 상승/하락 종목수 미포함 시 지수 상승비율 활용)
+            if 'ADR' not in df.columns:
+                df['Up_Day'] = np.where(df['Close'] > df['Close'].shift(1), 1, 0)
+                df['Down_Day'] = np.where(df['Close'] < df['Close'].shift(1), 1, 0)
+                roll_up = df['Up_Day'].rolling(window=20).sum()
+                roll_down = df['Down_Day'].rolling(window=20).sum()
+                df['ADR'] = np.where(roll_down == 0, 100, (roll_up / roll_down) * 100)
+
+            # 전일 ADR을 쉽게 참조하기 위해 한 칸 미뤄둠
+            df['Prev_ADR'] = df['ADR'].shift(1)
+            return df
+        return pd.DataFrame()
+
+    try:
+        kospi_idx_df = prep_index_df(os.path.join(MARKET_DATA_FOLDER, "코스피_일봉지수.xlsx"))
+        kosdaq_idx_df = prep_index_df(os.path.join(MARKET_DATA_FOLDER, "코스닥_일봉지수.xlsx"))
+    except Exception as e:
+        print(f"⚠️ 지수 데이터를 불러오는 중 오류 발생: {e}")
+
+    # 지수 및 기타 분석을 위한 버킷(구간) 분류 함수
+    def get_pct_bucket(val):
+        if pd.isna(val): return '0.0~0.5%'
+        if val <= -4.0:
+            return '-4.0% 이하'
+        elif val <= -3.5:
+            return '-4.0~-3.5%'
+        elif val <= -3.0:
+            return '-3.5~-3.0%'
+        elif val <= -2.5:
+            return '-3.0~-2.5%'
+        elif val <= -2.0:
+            return '-2.5~-2.0%'
+        elif val <= -1.5:
+            return '-2.0~-1.5%'
+        elif val <= -1.0:
+            return '-1.5~-1.0%'
+        elif val <= -0.5:
+            return '-1.0~-0.5%'
+        elif val <= 0.0:
+            return '-0.5~0.0%'
+        elif val <= 0.5:
+            return '0.0~0.5%'
+        elif val <= 1.0:
+            return '0.5~1.0%'
+        elif val <= 1.5:
+            return '1.0~1.5%'
+        elif val <= 2.0:
+            return '1.5~2.0%'
+        elif val <= 2.5:
+            return '2.0~2.5%'
+        elif val <= 3.0:
+            return '2.5~3.0%'
+        elif val <= 3.5:
+            return '3.0~3.5%'
+        elif val <= 4.0:
+            return '3.5~4.0%'
+        else:
+            return '4.0% 이상'
+
+    def get_adr_bucket(val):
+        if pd.isna(val): return '100~110%'
+        if val < 70:
+            return '70% 미만'
+        elif val < 80:
+            return '70~80%'
+        elif val < 90:
+            return '80~90%'
+        elif val < 100:
+            return '90~100%'
+        elif val < 110:
+            return '100~110%'
+        elif val < 120:
+            return '110~120%'
+        elif val < 130:
+            return '120~130%'
+        elif val < 140:
+            return '130~140%'
+        elif val < 150:
+            return '140~150%'
+        elif val < 160:
+            return '150~160%'
+        elif val < 170:
+            return '160~170%'
+        elif val < 180:
+            return '170~180%'
+        elif val < 190:
+            return '180~190%'
+        elif val < 200:
+            return '190~200%'
+        else:
+            return '200% 이상'
+
+    def get_gap_bucket(val):
+        if pd.isna(val): return '0%대'
+        if val <= -11.0:
+            return '-11% 이하'
+        elif val >= 10.0:
+            return '10% 이상'
+        else:
+            sign = "-" if val < 0 else ""
+            abs_int = int(abs(val))
+            if val < 0 and abs_int == 0:
+                return "-0%대"
+            return f"{sign}{abs_int}%대"
+
+    def get_amount_bucket(val):
+        if val < 10000000000:
+            return '100억 미만'
+        elif val < 20000000000:
+            return '100억대'
+        elif val < 30000000000:
+            return '200억대'
+        elif val < 40000000000:
+            return '300억대'
+        elif val < 50000000000:
+            return '400억대'
+        elif val < 60000000000:
+            return '500억대'
+        elif val < 70000000000:
+            return '600억대'
+        elif val < 80000000000:
+            return '700억대'
+        elif val < 90000000000:
+            return '800억대'
+        elif val < 100000000000:
+            return '900억대'
+        elif val < 150000000000:
+            return '1000~1500억'
+        elif val < 200000000000:
+            return '1500~2000억'
+        elif val < 250000000000:
+            return '2000~2500억'
+        else:
+            return '2500억 이상'
+
+    # 버킷 리스트 정의
+    pct_buckets = ['-4.0% 이하', '-4.0~-3.5%', '-3.5~-3.0%', '-3.0~-2.5%', '-2.5~-2.0%', '-2.0~-1.5%', '-1.5~-1.0%',
+                   '-1.0~-0.5%', '-0.5~0.0%', '0.0~0.5%', '0.5~1.0%', '1.0~1.5%', '1.5~2.0%', '2.0~2.5%', '2.5~3.0%',
+                   '3.0~3.5%', '3.5~4.0%', '4.0% 이상']
+    adr_buckets = ['70% 미만', '70~80%', '80~90%', '90~100%', '100~110%', '110~120%', '120~130%', '130~140%', '140~150%',
+                   '150~160%', '160~170%', '170~180%', '180~190%', '190~200%', '200% 이상']
+    rsi_buckets = ['50 이하', '50대', '60대', '70대', '80대', '90대']
+    atr_buckets = ['2% 미만', '2%~4%', '4%~6%', '6%~8%', '8% 이상']
+    adx_buckets = ['20 미만', '20~40', '40~60', '60~80', '80 이상']
+    bw_buckets = ['2% 미만', '2~4%', '4~6%', '6~8%', '8~10%', '10~12%', '12~14%', '14~16%', '16~18%', '18~20%', '20~25%',
+                  '25~30%', '30~35%', '35~40%', '40% 이상']
+    surge_buckets = ['1%대', '2%대', '3%대', '4%대', '5%대', '6%대', '7%대', '8%대', '9%대', '10%대', '11%대', '12%대', '13%대',
+                     '14%대', '15%대', '16%대', '17%대', '18%대', '19%대', '20%대', '21%대', '22%대', '23%대', '24%대', '25% 이상']
+    amount_buckets = ['100억 미만', '100억대', '200억대', '300억대', '400억대', '500억대', '600억대', '700억대', '800억대', '900억대',
+                      '1000~1500억', '1500~2000억', '2000~2500억', '2500억 이상']
+    vol_surge_buckets = ['300% 미만', '300~400%', '400~500%', '500~600%', '600~700%', '700% 이상']
+    gap_buckets = ['-11% 이하', '-10%대', '-9%대', '-8%대', '-7%대', '-6%대', '-5%대', '-4%대', '-3%대', '-2%대', '-1%대', '-0%대',
+                   '0%대', '1%대', '2%대', '3%대', '4%대', '5%대', '6%대', '7%대', '8%대', '9%대', '10% 이상']
+
+    # 통계 딕셔너리 초기화
+    def init_stats(buckets):
+        return {b: {'games': 0, 'wins': 0, 'profit': 0, 'slippage': 0, 'gross_profit': 0, 'gross_loss': 0,
+                    'sum_profit_pct': 0} for b in buckets}
+
+    kp_ma20_stats = init_stats(pct_buckets)
+    kp_gap_stats = init_stats(pct_buckets)
+    kp_adr_stats = init_stats(adr_buckets)
+    kd_ma20_stats = init_stats(pct_buckets)
+    kd_gap_stats = init_stats(pct_buckets)
+    kd_adr_stats = init_stats(adr_buckets)
+
+    rsi_stats = init_stats(rsi_buckets)
+    atr_stats = init_stats(atr_buckets)
+    adx_stats = init_stats(adx_buckets)
+    bw_stats = init_stats(bw_buckets)
+    surge_stats = init_stats(surge_buckets)
+    amount_stats = init_stats(amount_buckets)
+    prev_amount_stats = init_stats(amount_buckets)
+    avg_amt_20_stats = init_stats(amount_buckets)
+    vol_surge_stats = init_stats(vol_surge_buckets)
+    gap_stats = init_stats(gap_buckets)
+
+    files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".xlsx")]
+    print(f"📂 분석 대상: {len(files)}개 종목\n")
+
+    print(f"\n📊 [전체 거래 내역 상세]")
+    # 표 컬럼에 '갭상승(%)' 반영
+    header_1 = f"{lpad('종목명', 14)} | {lpad('매수일', 10)} | {lpad('매수시간', 8)} | {lpad('매도시간', 8)} | {rpad('보유(일)', 8)} | {rpad('매수가', 10)} | {rpad('매도가', 10)} | {rpad('돌파상승률', 11)} | {rpad('갭상승(%)', 10)} | {rpad('수익률', 9)} | {rpad('최대수익', 9)} | {rpad('RSI', 6)} | {rpad('ATR(%)', 7)} | {rpad('ADX', 6)} | {rpad('밴드폭(%)', 10)}"
+    print("=" * calc_width(header_1))
+    print(header_1)
+    print("-" * calc_width(header_1))
+
+    total_stats = {'trades': 0, 'profit': 0, 'wins': 0, 'slippage': 0, 'hold_days': 0, 'gross_profit': 0,
+                   'gross_loss': 0}
+    all_history = []
+
+    daily_buys = defaultdict(int)
+    monthly_daily_buys = defaultdict(lambda: defaultdict(int))
+    yearly_daily_buys = defaultdict(lambda: defaultdict(int))
+
+    monthly_stats = defaultdict(
+        lambda: {'games': 0, 'wins': 0, 'profit': 0, 'slippage': 0, 'hold_days': 0, 'gross_profit': 0, 'gross_loss': 0})
+    yearly_stats = defaultdict(
+        lambda: {'games': 0, 'wins': 0, 'profit': 0, 'slippage': 0, 'hold_days': 0, 'gross_profit': 0, 'gross_loss': 0})
+
+    for idx, file_path in enumerate(files):
+        stock_name = os.path.basename(file_path).split('_')[-1].replace('.xlsx', '')
+        is_first = (idx == 0)
+        res = run_single_backtest(file_path, is_first_run=is_first)
+
+        if res and res['trades'] > 0:
+            total_stats['trades'] += res['trades']
+            total_stats['profit'] += res['total_profit']
+            total_stats['wins'] += res['wins']
+
+            for t in res['history']:
+                t['stock_name'] = stock_name
+                t['file_path'] = file_path  # 차트 그리기용 파일 경로 저장
+                all_history.append(t)
+
+                close_date_str = t['date'] if isinstance(t['date'], str) else t['date'].strftime('%Y-%m-%d')
+                open_date_str = t['open_date'] if isinstance(t['open_date'], str) else t['open_date'].strftime(
+                    '%Y-%m-%d')
+                open_time_str = t['open_time'] if isinstance(t['open_time'], str) else t['open_time'].strftime('%H:%M')
+                close_time_str = t['close_time'] if isinstance(t['close_time'], str) else t['close_time'].strftime(
+                    '%H:%M')
+
+                hold_days = t.get('hold_days', 0)
+                total_stats['hold_days'] += hold_days
+                daily_buys[open_date_str] += 1
+
+                profit_pct = t['profit_pct']
+                max_profit_pct = t.get('max_profit_pct', 0.0)
+                entry_price = t['entry_price']
+                exit_price = t['exit_price']
+                rsi_val = t.get('entry_rsi', 0)
+                atr_raw = t.get('entry_atr', 0)
+                atr_val = (atr_raw / entry_price * 100) if entry_price > 0 else 0
+                adx_val = t.get('entry_adx', 0)
+
+                # 추출
+                surge_raw = t.get('entry_surge', 0)
+                surge_pct_val = surge_raw * 100
+                gap_pct_val = t.get('entry_gap_pct', 0) * 100
+                amt_raw = t.get('entry_trade_amount', 0)
+                prev_amt_raw = t.get('entry_prev_trade_amount', 0)
+                avg_amt_20_raw = t.get('entry_avg_trade_amount_20', 0)
+                vol_surge_val = t.get('entry_vol_surge', 0)
+                bw_raw = t.get('entry_bandwidth', 0)
+                bw_pct = bw_raw * 100
+
+                buy_size = t.get('size', 0)
+                slippage_cost = entry_price * buy_size * p['slippage_pct']
+
+                total_stats['slippage'] += slippage_cost
+
+                t_gross_profit = t['pnl'] if t['pnl'] > 0 else 0
+                t_gross_loss = abs(t['pnl']) if t['pnl'] <= 0 else 0
+                total_stats['gross_profit'] += t_gross_profit
+                total_stats['gross_loss'] += t_gross_loss
+
+                # -----------------------------------------------------
+                # 지수 데이터 매핑 및 버킷팅 처리
+                # -----------------------------------------------------
+                try:
+                    dt_key = pd.to_datetime(open_date_str)
+
+                    if not kospi_idx_df.empty and dt_key in kospi_idx_df.index:
+                        kp_row = kospi_idx_df.loc[dt_key]
+                        if isinstance(kp_row, pd.DataFrame): kp_row = kp_row.iloc[0]
+                        kp_ma_v = kp_row['Open_to_MA20_pct']
+                        kp_gap_v = kp_row['Open_Gap_pct']
+                        kp_adr_v = kp_row['Prev_ADR']
+                    else:
+                        kp_ma_v, kp_gap_v, kp_adr_v = 0, 0, 100
+
+                    if not kosdaq_idx_df.empty and dt_key in kosdaq_idx_df.index:
+                        kd_row = kosdaq_idx_df.loc[dt_key]
+                        if isinstance(kd_row, pd.DataFrame): kd_row = kd_row.iloc[0]
+                        kd_ma_v = kd_row['Open_to_MA20_pct']
+                        kd_gap_v = kd_row['Open_Gap_pct']
+                        kd_adr_v = kd_row['Prev_ADR']
+                    else:
+                        kd_ma_v, kd_gap_v, kd_adr_v = 0, 0, 100
+
+                except Exception:
+                    kp_ma_v, kp_gap_v, kp_adr_v = 0, 0, 100
+                    kd_ma_v, kd_gap_v, kd_adr_v = 0, 0, 100
+
+                kp_ma20_b = get_pct_bucket(kp_ma_v)
+                kp_gap_b = get_pct_bucket(kp_gap_v)
+                kp_adr_b = get_adr_bucket(kp_adr_v)
+
+                kd_ma20_b = get_pct_bucket(kd_ma_v)
+                kd_gap_b = get_pct_bucket(kd_gap_v)
+                kd_adr_b = get_adr_bucket(kd_adr_v)
+
+                for stat_dict, b_val in [(kp_ma20_stats, kp_ma20_b), (kp_gap_stats, kp_gap_b), (kp_adr_stats, kp_adr_b),
+                                         (kd_ma20_stats, kd_ma20_b), (kd_gap_stats, kd_gap_b),
+                                         (kd_adr_stats, kd_adr_b)]:
+                    stat_dict[b_val]['games'] += 1
+                    stat_dict[b_val]['profit'] += t['pnl']
+                    stat_dict[b_val]['slippage'] += slippage_cost
+                    stat_dict[b_val]['gross_profit'] += t_gross_profit
+                    stat_dict[b_val]['gross_loss'] += t_gross_loss
+                    stat_dict[b_val]['sum_profit_pct'] += profit_pct
+                    if t['is_win']: stat_dict[b_val]['wins'] += 1
+                # -----------------------------------------------------
+
+                # RSI 집계
+                bucket = ""
+                if rsi_val <= 50:
+                    bucket = '50 이하'
+                elif rsi_val < 60:
+                    bucket = '50대'
+                elif rsi_val < 70:
+                    bucket = '60대'
+                elif rsi_val < 80:
+                    bucket = '70대'
+                elif rsi_val < 90:
+                    bucket = '80대'
+                else:
+                    bucket = '90대'
+
+                if bucket:
+                    rsi_stats[bucket]['games'] += 1
+                    rsi_stats[bucket]['profit'] += t['pnl']
+                    rsi_stats[bucket]['slippage'] += slippage_cost
+                    rsi_stats[bucket]['gross_profit'] += t_gross_profit
+                    rsi_stats[bucket]['gross_loss'] += t_gross_loss
+                    rsi_stats[bucket]['sum_profit_pct'] += profit_pct
+                    if t['is_win']: rsi_stats[bucket]['wins'] += 1
+
+                # ATR 집계
+                a_bucket = ""
+                if atr_val < 2:
+                    a_bucket = '2% 미만'
+                elif atr_val < 4:
+                    a_bucket = '2%~4%'
+                elif atr_val < 6:
+                    a_bucket = '4%~6%'
+                elif atr_val < 8:
+                    a_bucket = '6%~8%'
+                else:
+                    a_bucket = '8% 이상'
+
+                atr_stats[a_bucket]['games'] += 1
+                atr_stats[a_bucket]['profit'] += t['pnl']
+                atr_stats[a_bucket]['slippage'] += slippage_cost
+                atr_stats[a_bucket]['gross_profit'] += t_gross_profit
+                atr_stats[a_bucket]['gross_loss'] += t_gross_loss
+                atr_stats[a_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: atr_stats[a_bucket]['wins'] += 1
+
+                # ADX 집계
+                dx_bucket = ""
+                if adx_val < 20:
+                    dx_bucket = '20 미만'
+                elif adx_val < 40:
+                    dx_bucket = '20~40'
+                elif adx_val < 60:
+                    dx_bucket = '40~60'
+                elif adx_val < 80:
+                    dx_bucket = '60~80'
+                else:
+                    dx_bucket = '80 이상'
+
+                adx_stats[dx_bucket]['games'] += 1
+                adx_stats[dx_bucket]['profit'] += t['pnl']
+                adx_stats[dx_bucket]['slippage'] += slippage_cost
+                adx_stats[dx_bucket]['gross_profit'] += t_gross_profit
+                adx_stats[dx_bucket]['gross_loss'] += t_gross_loss
+                adx_stats[dx_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: adx_stats[dx_bucket]['wins'] += 1
+
+                # 밴드폭 집계
+                b_bucket = ""
+                if bw_pct < 2.0:
+                    b_bucket = '2% 미만'
+                elif bw_pct < 4.0:
+                    b_bucket = '2~4%'
+                elif bw_pct < 6.0:
+                    b_bucket = '4~6%'
+                elif bw_pct < 8.0:
+                    b_bucket = '6~8%'
+                elif bw_pct < 10.0:
+                    b_bucket = '8~10%'
+                elif bw_pct < 12.0:
+                    b_bucket = '10~12%'
+                elif bw_pct < 14.0:
+                    b_bucket = '12~14%'
+                elif bw_pct < 16.0:
+                    b_bucket = '14~16%'
+                elif bw_pct < 18.0:
+                    b_bucket = '16~18%'
+                elif bw_pct < 20.0:
+                    b_bucket = '18~20%'
+                elif bw_pct < 25.0:
+                    b_bucket = '20~25%'
+                elif bw_pct < 30.0:
+                    b_bucket = '25~30%'
+                elif bw_pct < 35.0:
+                    b_bucket = '30~35%'
+                elif bw_pct < 40.0:
+                    b_bucket = '35~40%'
+                else:
+                    b_bucket = '40% 이상'
+
+                bw_stats[b_bucket]['games'] += 1
+                bw_stats[b_bucket]['profit'] += t['pnl']
+                bw_stats[b_bucket]['slippage'] += slippage_cost
+                bw_stats[b_bucket]['gross_profit'] += t_gross_profit
+                bw_stats[b_bucket]['gross_loss'] += t_gross_loss
+                bw_stats[b_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: bw_stats[b_bucket]['wins'] += 1
+
+                # 돌파상승률 집계
+                surge_int = int(surge_pct_val)
+                if surge_int < 2:
+                    s_bucket = '1%대'
+                elif surge_int >= 25:
+                    s_bucket = '25% 이상'
+                else:
+                    s_bucket = f"{surge_int}%대"
+
+                surge_stats[s_bucket]['games'] += 1
+                surge_stats[s_bucket]['profit'] += t['pnl']
+                surge_stats[s_bucket]['slippage'] += slippage_cost
+                surge_stats[s_bucket]['gross_profit'] += t_gross_profit
+                surge_stats[s_bucket]['gross_loss'] += t_gross_loss
+                surge_stats[s_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: surge_stats[s_bucket]['wins'] += 1
+
+                # 갭상승 집계
+                g_bucket = get_gap_bucket(gap_pct_val)
+                gap_stats[g_bucket]['games'] += 1
+                gap_stats[g_bucket]['profit'] += t['pnl']
+                gap_stats[g_bucket]['slippage'] += slippage_cost
+                gap_stats[g_bucket]['gross_profit'] += t_gross_profit
+                gap_stats[g_bucket]['gross_loss'] += t_gross_loss
+                gap_stats[g_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: gap_stats[g_bucket]['wins'] += 1
+
+                # 진입 봉 거래대금 집계
+                amt_bucket = get_amount_bucket(amt_raw)
+                amount_stats[amt_bucket]['games'] += 1
+                amount_stats[amt_bucket]['profit'] += t['pnl']
+                amount_stats[amt_bucket]['slippage'] += slippage_cost
+                amount_stats[amt_bucket]['gross_profit'] += t_gross_profit
+                amount_stats[amt_bucket]['gross_loss'] += t_gross_loss
+                amount_stats[amt_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: amount_stats[amt_bucket]['wins'] += 1
+
+                # 1봉전 거래대금 집계
+                prev_amt_bucket = get_amount_bucket(prev_amt_raw)
+                prev_amount_stats[prev_amt_bucket]['games'] += 1
+                prev_amount_stats[prev_amt_bucket]['profit'] += t['pnl']
+                prev_amount_stats[prev_amt_bucket]['slippage'] += slippage_cost
+                prev_amount_stats[prev_amt_bucket]['gross_profit'] += t_gross_profit
+                prev_amount_stats[prev_amt_bucket]['gross_loss'] += t_gross_loss
+                prev_amount_stats[prev_amt_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: prev_amount_stats[prev_amt_bucket]['wins'] += 1
+
+                # 매수 전 20일 평균 거래대금 집계
+                a20_bucket = get_amount_bucket(avg_amt_20_raw)
+                avg_amt_20_stats[a20_bucket]['games'] += 1
+                avg_amt_20_stats[a20_bucket]['profit'] += t['pnl']
+                avg_amt_20_stats[a20_bucket]['slippage'] += slippage_cost
+                avg_amt_20_stats[a20_bucket]['gross_profit'] += t_gross_profit
+                avg_amt_20_stats[a20_bucket]['gross_loss'] += t_gross_loss
+                avg_amt_20_stats[a20_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: avg_amt_20_stats[a20_bucket]['wins'] += 1
+
+                # 거래량 폭증 구간별 집계
+                if vol_surge_val < 300:
+                    v_bucket = '300% 미만'
+                elif vol_surge_val < 400:
+                    v_bucket = '300~400%'
+                elif vol_surge_val < 500:
+                    v_bucket = '400~500%'
+                elif vol_surge_val < 600:
+                    v_bucket = '500~600%'
+                elif vol_surge_val < 700:
+                    v_bucket = '600~700%'
+                else:
+                    v_bucket = '700% 이상'
+
+                vol_surge_stats[v_bucket]['games'] += 1
+                vol_surge_stats[v_bucket]['profit'] += t['pnl']
+                vol_surge_stats[v_bucket]['slippage'] += slippage_cost
+                vol_surge_stats[v_bucket]['gross_profit'] += t_gross_profit
+                vol_surge_stats[v_bucket]['gross_loss'] += t_gross_loss
+                vol_surge_stats[v_bucket]['sum_profit_pct'] += profit_pct
+                if t['is_win']: vol_surge_stats[v_bucket]['wins'] += 1
+
+                # 월별/년도별 집계
+                dt_obj = t['open_date'] if not isinstance(t['open_date'], str) else pd.to_datetime(t['open_date'])
+                ym = dt_obj.strftime('%Y-%m')
+                y = dt_obj.strftime('%Y')
+
+                monthly_daily_buys[ym][open_date_str] += 1
+                yearly_daily_buys[y][open_date_str] += 1
+
+                monthly_stats[ym]['games'] += 1
+                monthly_stats[ym]['profit'] += t['pnl']
+                monthly_stats[ym]['slippage'] += slippage_cost
+                monthly_stats[ym]['hold_days'] += hold_days
+                monthly_stats[ym]['gross_profit'] += t_gross_profit
+                monthly_stats[ym]['gross_loss'] += t_gross_loss
+                if t['is_win']: monthly_stats[ym]['wins'] += 1
+
+                yearly_stats[y]['games'] += 1
+                yearly_stats[y]['profit'] += t['pnl']
+                yearly_stats[y]['slippage'] += slippage_cost
+                yearly_stats[y]['hold_days'] += hold_days
+                yearly_stats[y]['gross_profit'] += t_gross_profit
+                yearly_stats[y]['gross_loss'] += t_gross_loss
+                if t['is_win']: yearly_stats[y]['wins'] += 1
+
+                mark = "🔴" if profit_pct > 0 else "🔵"
+                hold_str = f"{hold_days}일"
+                ep_str = f"{entry_price:,.0f}"
+                xp_str = f"{exit_price:,.0f}"
+                surge_str = f"{surge_pct_val:.2f}%"
+                gap_str = f"{gap_pct_val:.2f}%"
+                pct_str = f"{profit_pct:.2f}%"
+                max_pct_str = f"{max_profit_pct:.2f}%"
+                atr_str = f"{atr_val:.2f}%"
+                bw_str = f"{bw_pct:.2f}%"
+
+                # 한글 폭 고려한 커스텀 출력
+                row_str = f"{lpad(stock_name, 14)} | {lpad(open_date_str, 10)} | {lpad(open_time_str, 8)} | {lpad(close_time_str, 8)} | {rpad(hold_str, 8)} | {rpad(ep_str, 10)} | {rpad(xp_str, 10)} | {rpad(surge_str, 11)} | {rpad(gap_str, 10)} | {rpad(pct_str, 9)} | {rpad(max_pct_str, 9)} | {rpad(f'{rsi_val:.1f}', 6)} | {rpad(atr_str, 7)} | {rpad(f'{adx_val:.1f}', 6)} | {rpad(bw_str, 10)}"
+                print(f"{row_str} {mark}")
+
+    print("=" * calc_width(header_1))
+
+    avg_win_rate = (total_stats['wins'] / total_stats['trades'] * 100) if total_stats['trades'] > 0 else 0
+    total_virtual_profit = total_stats['profit'] - total_stats['slippage']
+    total_loss_ratio = (total_stats['slippage'] / abs(total_stats['profit']) * 100) if total_stats['profit'] != 0 else 0
+
+    total_gross_loss_with_slippage = total_stats['gross_loss'] + total_stats['slippage']
+    total_loss_profit_ratio = (total_gross_loss_with_slippage / total_stats['gross_profit'] * 100) if total_stats[
+                                                                                                          'gross_profit'] > 0 else 0
+
+    avg_hold_days = (total_stats['hold_days'] / total_stats['trades']) if total_stats['trades'] > 0 else 0
+    avg_daily_buys = (total_stats['trades'] / len(daily_buys)) if daily_buys else 0
+
+    avg_1hit_rtn = ((total_virtual_profit / total_stats['trades']) / 10000000 * 100) if total_stats['trades'] > 0 else 0
+
+    # 일봉 기준 1달(20일) 회전율을 재조정
+    turnover_rate = (20 / avg_hold_days) if avg_hold_days > 0 else 0
+    expected_games = turnover_rate * 10
+    expected_10slot_rtn = expected_games * avg_1hit_rtn
+
+    print(
+        f"\n📈 [전체 요약] 총 매매 횟수: {total_stats['trades']}회, 평균 승률: {avg_win_rate:.2f}%, "
+        f"평균 보유기간: {avg_hold_days:.1f}일, 일평균 포착: {avg_daily_buys:.1f}개\n"
+        f"총 수익금: {total_stats['profit']:,.0f}원 | "
+        f"가상수익금({p['slippage_pct'] * 100:.1f}%슬리피지): {total_virtual_profit:,.0f}원 | "
+        f"슬리피지비율: {total_loss_ratio:.2f}% | 손실/수익비: {total_loss_profit_ratio:.2f}%\n"
+        f"💡 [예상 성과(월기준)] 1타평균수익률: {avg_1hit_rtn:.2f}% | 회전률: {turnover_rate:.2f}회 | "
+        f"예상게임수: {expected_games:.1f}번 | 10슬롯당수익률: {expected_10slot_rtn:.2f}%"
+    )
+
+    # ---------------------------------------------------------
+    # 통합 출력 및 차트 저장 함수
+    # ---------------------------------------------------------
+    def print_and_save_stats(title, stats_dict, buckets, col_width=18):
+        print(f"\n\n📊 [{title}]")
+        header = f"{lpad('구간', col_width)} | {rpad('게임수', 10)} | {rpad('승률', 10)} | {rpad('총 수익금', 18)} | {rpad('가상수익금', 18)} | {rpad('슬리피지비율', 12)} | {rpad('손실/수익비', 11)}"
+        print("=" * calc_width(header))
+        print(header)
+        print("-" * calc_width(header))
+        for bucket in buckets:
+            s = stats_dict[bucket]
+            win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
+            virtual_profit = s['profit'] - s['slippage']
+            loss_ratio = (s['slippage'] / abs(s['profit']) * 100) if s['profit'] != 0 else 0
+            lpr_val = ((s['gross_loss'] + s['slippage']) / s['gross_profit'] * 100) if s['gross_profit'] > 0 else 0
+
+            games_str = f"{s['games']}회"
+            win_str = f"{win_rate:.1f}%"
+            profit_str = f"{s['profit']:,.0f}원"
+            vprofit_str = f"{virtual_profit:,.0f}원"
+            loss_str = f"{loss_ratio:.2f}%"
+            lpr_str = f"{lpr_val:.2f}%"
+            print(
+                f"{lpad(bucket, col_width)} | {rpad(games_str, 10)} | {rpad(win_str, 10)} | {rpad(profit_str, 18)} | {rpad(vprofit_str, 18)} | {rpad(loss_str, 12)} | {rpad(lpr_str, 11)}")
+
+        save_analysis_chart(title, stats_dict, buckets, ANALYSIS_CHART_FOLDER)
+
+    print_and_save_stats("RSI 구간별 성과 분석", rsi_stats, rsi_buckets, 14)
+    print_and_save_stats("ATR(%) 구간별 성과 분석", atr_stats, atr_buckets, 14)
+    print_and_save_stats("ADX 구간별 성과 분석", adx_stats, adx_buckets, 14)
+    print_and_save_stats("전일기준 밴드폭(%) 구간별 성과 분석", bw_stats, bw_buckets, 14)
+    print_and_save_stats("당일 갭상승률 구간별 성과 분석", gap_stats, gap_buckets, 14)
+    print_and_save_stats("진입 시점 돌파상승률 구간별 성과 분석", surge_stats, surge_buckets, 16)
+    print_and_save_stats("매수 전 20일 평균 거래대금 구간별 성과 분석", avg_amt_20_stats, amount_buckets, 16)
+    print_and_save_stats("1봉전 거래대금 구간별 성과 분석", prev_amount_stats, amount_buckets, 14)
+    print_and_save_stats("진입 봉 거래대금 구간별 성과 분석", amount_stats, amount_buckets, 14)
+    print_and_save_stats("진입 봉 거래량 폭증 구간별 성과 분석", vol_surge_stats, vol_surge_buckets, 16)
+
+    # 코스피/코스닥 지수 관련 분석표
+    print_and_save_stats("KOSPI 당일 시가의 20일선 기준 이격도(%) 분석", kp_ma20_stats, pct_buckets, 18)
+    print_and_save_stats("KOSPI 전일 ADR(%) 구간별 성과 분석", kp_adr_stats, adr_buckets, 18)
+    print_and_save_stats("KOSPI 전일 종가 대비 당일 시가 등락률(%) 분석", kp_gap_stats, pct_buckets, 18)
+
+    print_and_save_stats("KOSDAQ 당일 시가의 20일선 기준 이격도(%) 분석", kd_ma20_stats, pct_buckets, 18)
+    print_and_save_stats("KOSDAQ 전일 ADR(%) 구간별 성과 분석", kd_adr_stats, adr_buckets, 18)
+    print_and_save_stats("KOSDAQ 전일 종가 대비 당일 시가 등락률(%) 분석", kd_gap_stats, pct_buckets, 18)
+
+    # 월별 분석 출력
+    print("\n\n📊 [월별 성과 분석]")
+    header_monthly = f"{lpad('월 (Month)', 10)} | {rpad('게임수', 7)} | {rpad('매수종목수평균', 14)} | {rpad('평균보유기간', 12)} | {rpad('승률', 9)} | {rpad('총 수익금', 18)} | {rpad('가상수익금', 18)} | {rpad('슬리피지비율', 12)} | {rpad('손실/수익비', 11)} | {rpad('1타수익률', 10)} | {rpad('회전률', 8)} | {rpad('예상게임수', 10)} | {rpad('10슬롯수익률', 14)}"
+    print("=" * calc_width(header_monthly))
+    print(header_monthly)
+    print("-" * calc_width(header_monthly))
+    for ym in sorted(monthly_stats.keys()):
+        s = monthly_stats[ym]
+        win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
+        virtual_profit = s['profit'] - s['slippage']
+        avg_monthly_buys = s['games'] / len(monthly_daily_buys[ym]) if monthly_daily_buys[ym] else 0
+
+        # 일봉 전용 월별 기대수익 계산
+        m_avg_hold = s['hold_days'] / s['games'] if s['games'] > 0 else 0
+        m_1hit_rtn = ((virtual_profit / s['games']) / 10000000 * 100) if s['games'] > 0 else 0
+        m_turnover = (20 / m_avg_hold) if m_avg_hold > 0 else 0
+        m_exp_games = m_turnover * 10
+        m_10slot_rtn = m_exp_games * m_1hit_rtn
+        loss_ratio = (s['slippage'] / abs(s['profit']) * 100) if s['profit'] != 0 else 0
+        lpr_val = ((s['gross_loss'] + s['slippage']) / s['gross_profit'] * 100) if s['gross_profit'] > 0 else 0
+
+        games_str = f"{s['games']}회"
+        buys_str = f"{avg_monthly_buys:.1f}개"
+        hold_str = f"{m_avg_hold:.1f}일"
+        win_str = f"{win_rate:.1f}%"
+        profit_str = f"{s['profit']:,.0f}원"
+        vprofit_str = f"{virtual_profit:,.0f}원"
+        loss_str = f"{loss_ratio:.2f}%"
+        lpr_str = f"{lpr_val:.2f}%"
+        hit_str = f"{m_1hit_rtn:.2f}%"
+        turn_str = f"{m_turnover:.2f}"
+        exp_str = f"{m_exp_games:.1f}번"
+        slot_str = f"{m_10slot_rtn:.2f}%"
+
+        print(
+            f"{lpad(ym, 10)} | {rpad(games_str, 7)} | {rpad(buys_str, 14)} | {rpad(hold_str, 12)} | {rpad(win_str, 9)} | {rpad(profit_str, 18)} | {rpad(vprofit_str, 18)} | {rpad(loss_str, 12)} | {rpad(lpr_str, 11)} | {rpad(hit_str, 10)} | {rpad(turn_str, 8)} | {rpad(exp_str, 10)} | {rpad(slot_str, 14)}")
+
+    # 년도별 분석 출력
+    print("\n\n📊 [년도별 성과 분석]")
+    header_yearly = f"{lpad('년도 (Year)', 11)} | {rpad('게임수', 7)} | {rpad('매수종목수평균', 14)} | {rpad('평균보유기간', 12)} | {rpad('승률', 9)} | {rpad('총 수익금', 18)} | {rpad('가상수익금', 18)} | {rpad('슬리피지비율', 12)} | {rpad('손실/수익비', 11)} | {rpad('1타수익률', 10)} | {rpad('회전률(년)', 10)} | {rpad('예상게임수', 10)} | {rpad('10슬롯수익률', 14)}"
+    print("=" * calc_width(header_yearly))
+    print(header_yearly)
+    print("-" * calc_width(header_yearly))
+    for y in sorted(yearly_stats.keys()):
+        s = yearly_stats[y]
+        win_rate = (s['wins'] / s['games'] * 100) if s['games'] > 0 else 0
+        virtual_profit = s['profit'] - s['slippage']
+        avg_yearly_buys = s['games'] / len(yearly_daily_buys[y]) if yearly_daily_buys[y] else 0
+
+        # 일봉 전용 연도별 기대수익 계산
+        y_avg_hold = s['hold_days'] / s['games'] if s['games'] > 0 else 0
+        y_1hit_rtn = ((virtual_profit / s['games']) / 10000000 * 100) if s['games'] > 0 else 0
+        y_turnover = (240 / y_avg_hold) if y_avg_hold > 0 else 0
+        y_exp_games = y_turnover * 10
+        y_10slot_rtn = y_exp_games * y_1hit_rtn
+        loss_ratio = (s['slippage'] / abs(s['profit']) * 100) if s['profit'] != 0 else 0
+        lpr_val = ((s['gross_loss'] + s['slippage']) / s['gross_profit'] * 100) if s['gross_profit'] > 0 else 0
+
+        games_str = f"{s['games']}회"
+        buys_str = f"{avg_yearly_buys:.1f}개"
+        hold_str = f"{y_avg_hold:.1f}일"
+        win_str = f"{win_rate:.1f}%"
+        profit_str = f"{s['profit']:,.0f}원"
+        vprofit_str = f"{virtual_profit:,.0f}원"
+        loss_str = f"{loss_ratio:.2f}%"
+        lpr_str = f"{lpr_val:.2f}%"
+        hit_str = f"{y_1hit_rtn:.2f}%"
+        turn_str = f"{y_turnover:.2f}"
+        exp_str = f"{y_exp_games:.1f}번"
+        slot_str = f"{y_10slot_rtn:.2f}%"
+
+        print(
+            f"{lpad(y, 11)} | {rpad(games_str, 7)} | {rpad(buys_str, 14)} | {rpad(hold_str, 12)} | {rpad(win_str, 9)} | {rpad(profit_str, 18)} | {rpad(vprofit_str, 18)} | {rpad(loss_str, 12)} | {rpad(lpr_str, 11)} | {rpad(hit_str, 10)} | {rpad(turn_str, 10)} | {rpad(exp_str, 10)} | {rpad(slot_str, 14)}")
+    print("=" * calc_width(header_yearly))
+
+    # ==========================================
+    # [추가] 차트 생성: 수익률 Top 5 / Bottom 5
+    # ==========================================
+    if all_history:
+        chart_dir = CHART_FOLDER
+        if not os.path.exists(chart_dir):
+            os.makedirs(chart_dir)
+
+        print(f"\n\n📊 [차트 생성 중...] '{chart_dir}' 폴더에 수익률 Top 5 / Bottom 5 차트를 저장합니다.")
+        print(f"📊 [차트 생성 중...] '{ANALYSIS_CHART_FOLDER}' 폴더에 구간별 성과 차트(막대/선)를 저장합니다.")
+
+        # 수익률 기준 내림차순 정렬
+        sorted_history = sorted(all_history, key=lambda x: x['profit_pct'], reverse=True)
+        top_5 = sorted_history[:5]
+
+        # 데이터가 5개 이상일 경우 하위 5개 추출
+        bottom_5 = sorted_history[-5:] if len(sorted_history) > 5 else []
+
+        targets = [("Top", i + 1, t) for i, t in enumerate(top_5)]
+
+        # Bottom은 리스트를 뒤집어서 가장 수익률이 낮은 것이 1위가 되도록 처리
+        targets += [("Bottom", i + 1, t) for i, t in enumerate(reversed(bottom_5))]
+
+        for prefix, rank, t in targets:
+            save_chart(t, chart_dir, prefix, rank)
+
+        print("✅ 모든 데이터 집계 및 차트 저장이 완료되었습니다.")
+
+
+if __name__ == "__main__":
+    main()
