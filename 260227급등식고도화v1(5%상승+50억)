@@ -22,7 +22,6 @@ import matplotlib.pyplot as plt
 GLOBAL_KOSPI_DF = pd.DataFrame()
 GLOBAL_KOSDAQ_DF = pd.DataFrame()
 
-
 # ==========================================
 # 💡 [사용자 설정] 전체 환경 및 매매/지표 조건 수치 설정
 # 아래 값들을 수정하여 다양한 조건으로 백테스트를 진행할 수 있습니다.
@@ -68,13 +67,13 @@ MA_SELL_SLOW = 5  # 🚶‍♂️ 청산 데드크로스 판별용 중기 이평
 
 # [5] 글로벌 지수 필터 조건 설정 (코스피/코스닥 이격도 및 갭상승률)
 KP_MA20_MIN = -100.0  # 📉 코스피 당일 시가의 20일선 기준 이격도 최소(%)
-KP_MA20_MAX = 100.0   # 📈 코스피 당일 시가의 20일선 기준 이격도 최대(%)
-KP_GAP_MIN = -100.0   # 📉 코스피 전일 종가 대비 당일 시가 등락률 최소(%)
-KP_GAP_MAX = 100.0    # 📈 코스피 전일 종가 대비 당일 시가 등락률 최대(%)
+KP_MA20_MAX = 100.0  # 📈 코스피 당일 시가의 20일선 기준 이격도 최대(%)
+KP_GAP_MIN = -100.0  # 📉 코스피 전일 종가 대비 당일 시가 등락률 최소(%)
+KP_GAP_MAX = 100.0  # 📈 코스피 전일 종가 대비 당일 시가 등락률 최대(%)
 KD_MA20_MIN = -100.0  # 📉 코스닥 당일 시가의 20일선 기준 이격도 최소(%)
-KD_MA20_MAX = 100.0   # 📈 코스닥 당일 시가의 20일선 기준 이격도 최대(%)
-KD_GAP_MIN = -100.0   # 📉 코스닥 전일 종가 대비 당일 시가 등락률 최소(%)
-KD_GAP_MAX = 100.0    # 📈 코스닥 전일 종가 대비 당일 시가 등락률 최대(%)
+KD_MA20_MAX = 100.0  # 📈 코스닥 당일 시가의 20일선 기준 이격도 최대(%)
+KD_GAP_MIN = -100.0  # 📉 코스닥 전일 종가 대비 당일 시가 등락률 최소(%)
+KD_GAP_MAX = 100.0  # 📈 코스닥 전일 종가 대비 당일 시가 등락률 최대(%)
 
 
 # ==========================================
@@ -91,7 +90,7 @@ def load_global_indices():
     for f in os.listdir(MARKET_DATA_FOLDER):
         if not f.endswith(('.xlsx', '.csv')): continue
         file_path = os.path.join(MARKET_DATA_FOLDER, f)
-        
+
         try:
             if f.endswith('.csv'):
                 try:
@@ -100,16 +99,17 @@ def load_global_indices():
                     df = pd.read_csv(file_path, encoding='cp949')
             else:
                 df = pd.read_excel(file_path)
-                
+
             df.columns = [str(c).strip() for c in df.columns]
-            
+
             # HTS 기본 컬럼명을 Open, Close 로 매핑
             rename_map = {'일자': 'Date', '체결시간': 'Date', '현재가': 'Close', '종가': 'Close', '시가': 'Open'}
             df = df.rename(columns=rename_map)
-            
+
             if 'Date' in df.columns:
                 # 공백도 유지하도록 정규식 [^0-9-: ] 으로 수정
-                df['Date'] = pd.to_datetime(df['Date'].astype(str).str.replace(r'[^0-9-: ]', '', regex=True), errors='coerce')
+                df['Date'] = pd.to_datetime(df['Date'].astype(str).str.replace(r'[^0-9-: ]', '', regex=True),
+                                            errors='coerce')
                 df = df.dropna(subset=['Date'])
                 df = df.sort_values('Date').set_index('Date')
             elif isinstance(df.index, pd.DatetimeIndex):
@@ -123,7 +123,7 @@ def load_global_indices():
                     if df[col].dtype == 'object':
                         df[col] = df[col].astype(str).str.replace(',', '')
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-            
+
             # 내부적으로 이격도 및 갭상승률 계산 처리
             if 'Close' in df.columns and 'Open' in df.columns:
                 # 미래 참조(Look-Ahead Bias) 방지를 위해 전일 종가 기준으로 20일 이평선 계산
@@ -139,7 +139,7 @@ def load_global_indices():
             elif 'KOSDAQ' in name_upper or '코스닥' in name_upper:
                 GLOBAL_KOSDAQ_DF = df
                 print(f"✅ 코스닥 지수 데이터 로드 및 지표 계산 완료: {f}")
-                
+
         except Exception as e:
             print(f"⚠️ 지수 파일({f}) 로드 에러: {e}")
 
@@ -177,7 +177,7 @@ def save_analysis_chart(title, stats_dict, buckets, folder_path):
     x = np.arange(len(x_labels))
     width = 0.4
 
-    # 수익(빨강)과 손실(파랑) 막대그래프
+    # 수익(빨강)과 손실(파랑) 막대그래드
     ax1.bar(x - width / 2, gross_profits, width, label='총수익', color='#ff9999', edgecolor='red')
     ax1.bar(x + width / 2, gross_losses, width, label='총손실', color='#99ccff', edgecolor='blue')
 
@@ -579,24 +579,24 @@ class CustomDailyStrategy(bt.Strategy):
 
             # [조건 G] 글로벌 지수 필터 (KOSPI/KOSDAQ 당일 시가 기준 이격도 및 갭상승률)
             dt_key = pd.to_datetime(current_date)
-            
+
             # KOSPI 필터 검사 (.get을 활용하여 에러 방지 및 결측치 무시)
             if not GLOBAL_KOSPI_DF.empty and dt_key in GLOBAL_KOSPI_DF.index:
                 kp_row = GLOBAL_KOSPI_DF.loc[dt_key]
                 if isinstance(kp_row, pd.DataFrame): kp_row = kp_row.iloc[0]
                 kp_ma_v = kp_row.get('Open_to_MA20_pct', np.nan)
                 kp_gap_v = kp_row.get('Open_Gap_pct', np.nan)
-                
+
                 if not pd.isna(kp_ma_v) and not (self.p.kp_ma20_min <= kp_ma_v <= self.p.kp_ma20_max): return
                 if not pd.isna(kp_gap_v) and not (self.p.kp_gap_min <= kp_gap_v <= self.p.kp_gap_max): return
-                
+
             # KOSDAQ 필터 검사
             if not GLOBAL_KOSDAQ_DF.empty and dt_key in GLOBAL_KOSDAQ_DF.index:
                 kd_row = GLOBAL_KOSDAQ_DF.loc[dt_key]
                 if isinstance(kd_row, pd.DataFrame): kd_row = kd_row.iloc[0]
                 kd_ma_v = kd_row.get('Open_to_MA20_pct', np.nan)
                 kd_gap_v = kd_row.get('Open_Gap_pct', np.nan)
-                
+
                 if not pd.isna(kd_ma_v) and not (self.p.kd_ma20_min <= kd_ma_v <= self.p.kd_ma20_max): return
                 if not pd.isna(kd_gap_v) and not (self.p.kd_gap_min <= kd_gap_v <= self.p.kd_gap_max): return
 
@@ -933,8 +933,8 @@ def main():
     print(f"📂 분석 대상: {len(files)}개 종목\n")
 
     print(f"\n📊 [전체 거래 내역 상세]")
-    # [수정] 매수시간, 매도시간 컬럼 삭제 / 매수일 뒤에 매도일 추가
-    header_1 = f"{lpad('종목명', 14)} | {lpad('매수일', 10)} | {lpad('매도일', 10)} | {rpad('보유(일)', 8)} | {rpad('매수가', 10)} | {rpad('매도가', 10)} | {rpad('돌파상승률', 11)} | {rpad('갭상승(%)', 10)} | {rpad('수익률', 9)} | {rpad('최대수익', 9)} | {rpad('RSI', 6)} | {rpad('ATR(%)', 7)} | {rpad('ADX', 6)} | {rpad('밴드폭(%)', 10)}"
+    # [수정] 매수시간, 매도시간 컬럼 삭제 / 매수일 뒤에 매도일 추가 / 코스피이격 컬럼 추가
+    header_1 = f"{lpad('종목명', 14)} | {lpad('매수일', 10)} | {lpad('매도일', 10)} | {rpad('보유(일)', 8)} | {rpad('매수가', 10)} | {rpad('매도가', 10)} | {rpad('돌파상승률', 11)} | {rpad('갭상승(%)', 10)} | {rpad('수익률', 9)} | {rpad('최대수익', 9)} | {rpad('RSI', 6)} | {rpad('ATR(%)', 7)} | {rpad('ADX', 6)} | {rpad('밴드폭(%)', 10)} | {rpad('코스피이격', 10)}"
     print("=" * calc_width(header_1))
     print(header_1)
     print("-" * calc_width(header_1))
@@ -1270,8 +1270,8 @@ def main():
                 atr_str = f"{atr_val:.2f}%"
                 bw_str = f"{bw_pct:.2f}%"
 
-                # 한글 폭 고려한 커스텀 출력 (시간 삭제, 매도일 추가)
-                row_str = f"{lpad(stock_name, 14)} | {lpad(open_date_str, 10)} | {lpad(close_date_str, 10)} | {rpad(hold_str, 8)} | {rpad(ep_str, 10)} | {rpad(xp_str, 10)} | {rpad(surge_str, 11)} | {rpad(gap_str, 10)} | {rpad(pct_str, 9)} | {rpad(max_pct_str, 9)} | {rpad(f'{rsi_val:.1f}', 6)} | {rpad(atr_str, 7)} | {rpad(f'{adx_val:.1f}', 6)} | {rpad(bw_str, 10)}"
+                # 한글 폭 고려한 커스텀 출력 (시간 삭제, 매도일 추가, 코스피이격 추가)
+                row_str = f"{lpad(stock_name, 14)} | {lpad(open_date_str, 10)} | {lpad(close_date_str, 10)} | {rpad(hold_str, 8)} | {rpad(ep_str, 10)} | {rpad(xp_str, 10)} | {rpad(surge_str, 11)} | {rpad(gap_str, 10)} | {rpad(pct_str, 9)} | {rpad(max_pct_str, 9)} | {rpad(f'{rsi_val:.1f}', 6)} | {rpad(atr_str, 7)} | {rpad(f'{adx_val:.1f}', 6)} | {rpad(bw_str, 10)} | {rpad(f'{kp_ma_v:.2f}%' if not pd.isna(kp_ma_v) else 'N/A', 10)}"
                 print(f"{row_str} {mark}")
 
     print("=" * calc_width(header_1))
