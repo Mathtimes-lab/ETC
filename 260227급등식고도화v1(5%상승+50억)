@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 GLOBAL_KOSPI_DF = pd.DataFrame()
 GLOBAL_KOSDAQ_DF = pd.DataFrame()
 
+
 # ==========================================
 # 💡 [사용자 설정] 전체 환경 및 매매/지표 조건 수치 설정
 # 아래 값들을 수정하여 다양한 조건으로 백테스트를 진행할 수 있습니다.
@@ -71,16 +72,64 @@ MA_SELL_SLOW = 5  # 🚶‍♂️ 청산 데드크로스 판별용 중기 이평
 
 # [5] 글로벌 지수 필터 조건 설정 (코스피/코스닥 이격도 및 갭상승률)
 KP_MA20_MIN = -100.0  # 📉 코스피 당일 시가의 20일선 기준 이격도 최소(%)
-KP_MA20_MAX = 100.0  # 📈 코스피 당일 시가의 20일선 기준 이격도 최대(%)
-KP_GAP_MIN = -100.0  # 📉 코스피 전일 종가 대비 당일 시가 등락률 최소(%)
-KP_GAP_MAX = 100.0  # 📈 코스피 전일 종가 대비 당일 시가 등락률 최대(%)
+KP_MA20_MAX = 100.0   # 📈 코스피 당일 시가의 20일선 기준 이격도 최대(%)
+KP_GAP_MIN = -100.0   # 📉 코스피 전일 종가 대비 당일 시가 등락률 최소(%)
+KP_GAP_MAX = 100.0    # 📈 코스피 전일 종가 대비 당일 시가 등락률 최대(%)
 KD_MA20_MIN = -100.0  # 📉 코스닥 당일 시가의 20일선 기준 이격도 최소(%)
-KD_MA20_MAX = 100.0  # 📈 코스닥 당일 시가의 20일선 기준 이격도 최대(%)
-KD_GAP_MIN = -100.0  # 📉 코스닥 전일 종가 대비 당일 시가 등락률 최소(%)
-KD_GAP_MAX = 100.0  # 📈 코스닥 전일 종가 대비 당일 시가 등락률 최대(%)
+KD_MA20_MAX = 100.0   # 📈 코스닥 당일 시가의 20일선 기준 이격도 최대(%)
+KD_GAP_MIN = -100.0   # 📉 코스닥 전일 종가 대비 당일 시가 등락률 최소(%)
+KD_GAP_MAX = 100.0    # 📈 코스닥 전일 종가 대비 당일 시가 등락률 최대(%)
 
 
 # ==========================================
+
+# -----------------------------------------------------------------------------
+# [추가] 공통 지수 데이터 로드 함수
+# -----------------------------------------------------------------------------
+def load_global_indices():
+    global GLOBAL_KOSPI_DF, GLOBAL_KOSDAQ_DF
+    if not os.path.exists(MARKET_DATA_FOLDER):
+        print(f"⚠️ '{MARKET_DATA_FOLDER}' 폴더가 없습니다. 지수 데이터를 빈 상태로 진행합니다.")
+        return
+
+    for f in os.listdir(MARKET_DATA_FOLDER):
+        if not f.endswith(('.xlsx', '.csv')): continue
+        file_path = os.path.join(MARKET_DATA_FOLDER, f)
+        
+        try:
+            if f.endswith('.csv'):
+                try:
+                    df = pd.read_csv(file_path, encoding='utf-8-sig')
+                except:
+                    df = pd.read_csv(file_path, encoding='cp949')
+            else:
+                df = pd.read_excel(file_path)
+                
+            df.columns = [str(c).strip() for c in df.columns]
+            
+            rename_map = {'일자': 'Date', '체결시간': 'Date'}
+            df = df.rename(columns=rename_map)
+            
+            if 'Date' in df.columns:
+                df['Date'] = pd.to_datetime(df['Date'].astype(str).str.replace(r'[^0-9-:]', '', regex=True), errors='coerce')
+                df = df.dropna(subset=['Date'])
+                df = df.sort_values('Date').set_index('Date')
+            elif isinstance(df.index, pd.DatetimeIndex):
+                pass
+            else:
+                continue
+
+            name_upper = f.upper()
+            if 'KOSPI' in name_upper or '코스피' in name_upper:
+                GLOBAL_KOSPI_DF = df
+                print(f"✅ 코스피 지수 데이터 로드 완료: {f}")
+            elif 'KOSDAQ' in name_upper or '코스닥' in name_upper:
+                GLOBAL_KOSDAQ_DF = df
+                print(f"✅ 코스닥 지수 데이터 로드 완료: {f}")
+                
+        except Exception as e:
+            print(f"⚠️ 지수 파일({f}) 로드 에러: {e}")
+
 
 # -----------------------------------------------------------------------------
 # [추가] 분석 차트 생성 함수 (막대 + 선 그래프)
@@ -517,24 +566,24 @@ class CustomDailyStrategy(bt.Strategy):
 
             # [조건 G] 글로벌 지수 필터 (KOSPI/KOSDAQ 당일 시가 기준 이격도 및 갭상승률)
             dt_key = pd.to_datetime(current_date)
-
+            
             # KOSPI 필터 검사
             if not GLOBAL_KOSPI_DF.empty and dt_key in GLOBAL_KOSPI_DF.index:
                 kp_row = GLOBAL_KOSPI_DF.loc[dt_key]
                 if isinstance(kp_row, pd.DataFrame): kp_row = kp_row.iloc[0]
                 kp_ma_v = kp_row['Open_to_MA20_pct']
                 kp_gap_v = kp_row['Open_Gap_pct']
-
+                
                 if not (self.p.kp_ma20_min <= kp_ma_v <= self.p.kp_ma20_max): return
                 if not (self.p.kp_gap_min <= kp_gap_v <= self.p.kp_gap_max): return
-
+                
             # KOSDAQ 필터 검사
             if not GLOBAL_KOSDAQ_DF.empty and dt_key in GLOBAL_KOSDAQ_DF.index:
                 kd_row = GLOBAL_KOSDAQ_DF.loc[dt_key]
                 if isinstance(kd_row, pd.DataFrame): kd_row = kd_row.iloc[0]
                 kd_ma_v = kd_row['Open_to_MA20_pct']
                 kd_gap_v = kd_row['Open_Gap_pct']
-
+                
                 if not (self.p.kd_ma20_min <= kd_ma_v <= self.p.kd_ma20_max): return
                 if not (self.p.kd_gap_min <= kd_gap_v <= self.p.kd_gap_max): return
 
@@ -740,6 +789,8 @@ def main():
     # ==========================================
     # [수정] 공통 지수 데이터 로드 및 전처리 (전역 변수 사용)
     # ==========================================
+    load_global_indices()
+
     kospi_idx_df = GLOBAL_KOSPI_DF
     kosdaq_idx_df = GLOBAL_KOSDAQ_DF
 
