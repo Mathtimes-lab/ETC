@@ -1,10 +1,6 @@
 # ==========================================
 # 📊 [상세 거래 내역 리포트] 일봉 급등주 돌파 + 60이평(VWAP대체) + 밴드폭/RSI/ATR 구간 분석
 # =======================================================================================================================
-# 종목명          | 매수일       | 매수시간 | 매도시간 | 보유(일) |     매수가 |     매도가 | 돌파상승률 |  수익률 | 최대수익률 |   RSI |  ATR(%) |   ADX | 밴드폭(%)
-# -----------------------------------------------------------------------------------------------------------------------
-# ...
-# =======================================================================================================================
 import matplotlib
 
 # 화면 표시 없이 내부에서 이미지 생성 (충돌 방지)
@@ -84,7 +80,7 @@ KD_GAP_MAX = 100.0    # 📈 코스닥 전일 종가 대비 당일 시가 등락
 # ==========================================
 
 # -----------------------------------------------------------------------------
-# [추가] 공통 지수 데이터 로드 함수
+# [수정] 공통 지수 데이터 로드 및 지표 직접 계산 함수 (미래 참조 방지 및 정규식 수정)
 # -----------------------------------------------------------------------------
 def load_global_indices():
     global GLOBAL_KOSPI_DF, GLOBAL_KOSDAQ_DF
@@ -107,11 +103,13 @@ def load_global_indices():
                 
             df.columns = [str(c).strip() for c in df.columns]
             
-            rename_map = {'일자': 'Date', '체결시간': 'Date'}
+            # HTS 기본 컬럼명을 Open, Close 로 매핑
+            rename_map = {'일자': 'Date', '체결시간': 'Date', '현재가': 'Close', '종가': 'Close', '시가': 'Open'}
             df = df.rename(columns=rename_map)
             
             if 'Date' in df.columns:
-                df['Date'] = pd.to_datetime(df['Date'].astype(str).str.replace(r'[^0-9-:]', '', regex=True), errors='coerce')
+                # 공백도 유지하도록 정규식 [^0-9-: ] 으로 수정
+                df['Date'] = pd.to_datetime(df['Date'].astype(str).str.replace(r'[^0-9-: ]', '', regex=True), errors='coerce')
                 df = df.dropna(subset=['Date'])
                 df = df.sort_values('Date').set_index('Date')
             elif isinstance(df.index, pd.DatetimeIndex):
@@ -119,13 +117,28 @@ def load_global_indices():
             else:
                 continue
 
+            # 문자열로 되어있을 수 있는 시가/종가 숫자형 변환
+            for col in ['Open', 'Close']:
+                if col in df.columns:
+                    if df[col].dtype == 'object':
+                        df[col] = df[col].astype(str).str.replace(',', '')
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # 내부적으로 이격도 및 갭상승률 계산 처리
+            if 'Close' in df.columns and 'Open' in df.columns:
+                # 미래 참조(Look-Ahead Bias) 방지를 위해 전일 종가 기준으로 20일 이평선 계산
+                df['MA20'] = df['Close'].shift(1).rolling(window=20).mean()
+                df['Open_to_MA20_pct'] = (df['Open'] / df['MA20'] - 1.0) * 100.0
+                df['Prev_Close'] = df['Close'].shift(1)
+                df['Open_Gap_pct'] = (df['Open'] / df['Prev_Close'] - 1.0) * 100.0
+
             name_upper = f.upper()
             if 'KOSPI' in name_upper or '코스피' in name_upper:
                 GLOBAL_KOSPI_DF = df
-                print(f"✅ 코스피 지수 데이터 로드 완료: {f}")
+                print(f"✅ 코스피 지수 데이터 로드 및 지표 계산 완료: {f}")
             elif 'KOSDAQ' in name_upper or '코스닥' in name_upper:
                 GLOBAL_KOSDAQ_DF = df
-                print(f"✅ 코스닥 지수 데이터 로드 완료: {f}")
+                print(f"✅ 코스닥 지수 데이터 로드 및 지표 계산 완료: {f}")
                 
         except Exception as e:
             print(f"⚠️ 지수 파일({f}) 로드 에러: {e}")
@@ -567,25 +580,25 @@ class CustomDailyStrategy(bt.Strategy):
             # [조건 G] 글로벌 지수 필터 (KOSPI/KOSDAQ 당일 시가 기준 이격도 및 갭상승률)
             dt_key = pd.to_datetime(current_date)
             
-            # KOSPI 필터 검사
+            # KOSPI 필터 검사 (.get을 활용하여 에러 방지 및 결측치 무시)
             if not GLOBAL_KOSPI_DF.empty and dt_key in GLOBAL_KOSPI_DF.index:
                 kp_row = GLOBAL_KOSPI_DF.loc[dt_key]
                 if isinstance(kp_row, pd.DataFrame): kp_row = kp_row.iloc[0]
-                kp_ma_v = kp_row['Open_to_MA20_pct']
-                kp_gap_v = kp_row['Open_Gap_pct']
+                kp_ma_v = kp_row.get('Open_to_MA20_pct', np.nan)
+                kp_gap_v = kp_row.get('Open_Gap_pct', np.nan)
                 
-                if not (self.p.kp_ma20_min <= kp_ma_v <= self.p.kp_ma20_max): return
-                if not (self.p.kp_gap_min <= kp_gap_v <= self.p.kp_gap_max): return
+                if not pd.isna(kp_ma_v) and not (self.p.kp_ma20_min <= kp_ma_v <= self.p.kp_ma20_max): return
+                if not pd.isna(kp_gap_v) and not (self.p.kp_gap_min <= kp_gap_v <= self.p.kp_gap_max): return
                 
             # KOSDAQ 필터 검사
             if not GLOBAL_KOSDAQ_DF.empty and dt_key in GLOBAL_KOSDAQ_DF.index:
                 kd_row = GLOBAL_KOSDAQ_DF.loc[dt_key]
                 if isinstance(kd_row, pd.DataFrame): kd_row = kd_row.iloc[0]
-                kd_ma_v = kd_row['Open_to_MA20_pct']
-                kd_gap_v = kd_row['Open_Gap_pct']
+                kd_ma_v = kd_row.get('Open_to_MA20_pct', np.nan)
+                kd_gap_v = kd_row.get('Open_Gap_pct', np.nan)
                 
-                if not (self.p.kd_ma20_min <= kd_ma_v <= self.p.kd_ma20_max): return
-                if not (self.p.kd_gap_min <= kd_gap_v <= self.p.kd_gap_max): return
+                if not pd.isna(kd_ma_v) and not (self.p.kd_ma20_min <= kd_ma_v <= self.p.kd_ma20_max): return
+                if not pd.isna(kd_gap_v) and not (self.p.kd_gap_min <= kd_gap_v <= self.p.kd_gap_max): return
 
             # --- [추후 적용용 보조지표 조건 주석 처리] ---
             # 밴드폭 필터
@@ -796,7 +809,8 @@ def main():
 
     # 지수 및 기타 분석을 위한 버킷(구간) 분류 함수
     def get_pct_bucket(val):
-        if pd.isna(val): return '0.0~0.5%'
+        # 값이 없는 결측치의 경우 특정 버킷으로 몰리지 않도록 None을 반환
+        if pd.isna(val): return None
         if val <= -4.0:
             return '-4.0% 이하'
         elif val <= -3.5:
@@ -833,39 +847,6 @@ def main():
             return '3.5~4.0%'
         else:
             return '4.0% 이상'
-
-    def get_adr_bucket(val):
-        if pd.isna(val): return '100~110%'
-        if val < 70:
-            return '70% 미만'
-        elif val < 80:
-            return '70~80%'
-        elif val < 90:
-            return '80~90%'
-        elif val < 100:
-            return '90~100%'
-        elif val < 110:
-            return '100~110%'
-        elif val < 120:
-            return '110~120%'
-        elif val < 130:
-            return '120~130%'
-        elif val < 140:
-            return '130~140%'
-        elif val < 150:
-            return '140~150%'
-        elif val < 160:
-            return '150~160%'
-        elif val < 170:
-            return '160~170%'
-        elif val < 180:
-            return '170~180%'
-        elif val < 190:
-            return '180~190%'
-        elif val < 200:
-            return '190~200%'
-        else:
-            return '200% 이상'
 
     def get_gap_bucket(val):
         if pd.isna(val): return '0%대'
@@ -914,8 +895,6 @@ def main():
     pct_buckets = ['-4.0% 이하', '-4.0~-3.5%', '-3.5~-3.0%', '-3.0~-2.5%', '-2.5~-2.0%', '-2.0~-1.5%', '-1.5~-1.0%',
                    '-1.0~-0.5%', '-0.5~0.0%', '0.0~0.5%', '0.5~1.0%', '1.0~1.5%', '1.5~2.0%', '2.0~2.5%', '2.5~3.0%',
                    '3.0~3.5%', '3.5~4.0%', '4.0% 이상']
-    adr_buckets = ['70% 미만', '70~80%', '80~90%', '90~100%', '100~110%', '110~120%', '120~130%', '130~140%', '140~150%',
-                   '150~160%', '160~170%', '170~180%', '180~190%', '190~200%', '200% 이상']
     rsi_buckets = ['50 이하', '50대', '60대', '70대', '80대', '90대']
     atr_buckets = ['2% 미만', '2%~4%', '4%~6%', '6%~8%', '8% 이상']
     adx_buckets = ['20 미만', '20~40', '40~60', '60~80', '80 이상']
@@ -936,10 +915,8 @@ def main():
 
     kp_ma20_stats = init_stats(pct_buckets)
     kp_gap_stats = init_stats(pct_buckets)
-    kp_adr_stats = init_stats(adr_buckets)
     kd_ma20_stats = init_stats(pct_buckets)
     kd_gap_stats = init_stats(pct_buckets)
-    kd_adr_stats = init_stats(adr_buckets)
 
     rsi_stats = init_stats(rsi_buckets)
     atr_stats = init_stats(atr_buckets)
@@ -956,8 +933,8 @@ def main():
     print(f"📂 분석 대상: {len(files)}개 종목\n")
 
     print(f"\n📊 [전체 거래 내역 상세]")
-    # 표 컬럼에 '갭상승(%)' 반영
-    header_1 = f"{lpad('종목명', 14)} | {lpad('매수일', 10)} | {lpad('매수시간', 8)} | {lpad('매도시간', 8)} | {rpad('보유(일)', 8)} | {rpad('매수가', 10)} | {rpad('매도가', 10)} | {rpad('돌파상승률', 11)} | {rpad('갭상승(%)', 10)} | {rpad('수익률', 9)} | {rpad('최대수익', 9)} | {rpad('RSI', 6)} | {rpad('ATR(%)', 7)} | {rpad('ADX', 6)} | {rpad('밴드폭(%)', 10)}"
+    # [수정] 매수시간, 매도시간 컬럼 삭제 / 매수일 뒤에 매도일 추가
+    header_1 = f"{lpad('종목명', 14)} | {lpad('매수일', 10)} | {lpad('매도일', 10)} | {rpad('보유(일)', 8)} | {rpad('매수가', 10)} | {rpad('매도가', 10)} | {rpad('돌파상승률', 11)} | {rpad('갭상승(%)', 10)} | {rpad('수익률', 9)} | {rpad('최대수익', 9)} | {rpad('RSI', 6)} | {rpad('ATR(%)', 7)} | {rpad('ADX', 6)} | {rpad('밴드폭(%)', 10)}"
     print("=" * calc_width(header_1))
     print(header_1)
     print("-" * calc_width(header_1))
@@ -993,9 +970,6 @@ def main():
                 close_date_str = t['date'] if isinstance(t['date'], str) else t['date'].strftime('%Y-%m-%d')
                 open_date_str = t['open_date'] if isinstance(t['open_date'], str) else t['open_date'].strftime(
                     '%Y-%m-%d')
-                open_time_str = t['open_time'] if isinstance(t['open_time'], str) else t['open_time'].strftime('%H:%M')
-                close_time_str = t['close_time'] if isinstance(t['close_time'], str) else t['close_time'].strftime(
-                    '%H:%M')
 
                 hold_days = t.get('hold_days', 0)
                 total_stats['hold_days'] += hold_days
@@ -1040,43 +1014,39 @@ def main():
                     if not kospi_idx_df.empty and dt_key in kospi_idx_df.index:
                         kp_row = kospi_idx_df.loc[dt_key]
                         if isinstance(kp_row, pd.DataFrame): kp_row = kp_row.iloc[0]
-                        kp_ma_v = kp_row['Open_to_MA20_pct']
-                        kp_gap_v = kp_row['Open_Gap_pct']
-                        kp_adr_v = kp_row['Prev_ADR']
+                        kp_ma_v = kp_row.get('Open_to_MA20_pct', np.nan)
+                        kp_gap_v = kp_row.get('Open_Gap_pct', np.nan)
                     else:
-                        kp_ma_v, kp_gap_v, kp_adr_v = 0, 0, 100
+                        kp_ma_v, kp_gap_v = np.nan, np.nan
 
                     if not kosdaq_idx_df.empty and dt_key in kosdaq_idx_df.index:
                         kd_row = kosdaq_idx_df.loc[dt_key]
                         if isinstance(kd_row, pd.DataFrame): kd_row = kd_row.iloc[0]
-                        kd_ma_v = kd_row['Open_to_MA20_pct']
-                        kd_gap_v = kd_row['Open_Gap_pct']
-                        kd_adr_v = kd_row['Prev_ADR']
+                        kd_ma_v = kd_row.get('Open_to_MA20_pct', np.nan)
+                        kd_gap_v = kd_row.get('Open_Gap_pct', np.nan)
                     else:
-                        kd_ma_v, kd_gap_v, kd_adr_v = 0, 0, 100
+                        kd_ma_v, kd_gap_v = np.nan, np.nan
 
                 except Exception:
-                    kp_ma_v, kp_gap_v, kp_adr_v = 0, 0, 100
-                    kd_ma_v, kd_gap_v, kd_adr_v = 0, 0, 100
+                    kp_ma_v, kp_gap_v = np.nan, np.nan
+                    kd_ma_v, kd_gap_v = np.nan, np.nan
 
                 kp_ma20_b = get_pct_bucket(kp_ma_v)
                 kp_gap_b = get_pct_bucket(kp_gap_v)
-                kp_adr_b = get_adr_bucket(kp_adr_v)
 
                 kd_ma20_b = get_pct_bucket(kd_ma_v)
                 kd_gap_b = get_pct_bucket(kd_gap_v)
-                kd_adr_b = get_adr_bucket(kd_adr_v)
 
-                for stat_dict, b_val in [(kp_ma20_stats, kp_ma20_b), (kp_gap_stats, kp_gap_b), (kp_adr_stats, kp_adr_b),
-                                         (kd_ma20_stats, kd_ma20_b), (kd_gap_stats, kd_gap_b),
-                                         (kd_adr_stats, kd_adr_b)]:
-                    stat_dict[b_val]['games'] += 1
-                    stat_dict[b_val]['profit'] += t['pnl']
-                    stat_dict[b_val]['slippage'] += slippage_cost
-                    stat_dict[b_val]['gross_profit'] += t_gross_profit
-                    stat_dict[b_val]['gross_loss'] += t_gross_loss
-                    stat_dict[b_val]['sum_profit_pct'] += profit_pct
-                    if t['is_win']: stat_dict[b_val]['wins'] += 1
+                for stat_dict, b_val in [(kp_ma20_stats, kp_ma20_b), (kp_gap_stats, kp_gap_b),
+                                         (kd_ma20_stats, kd_ma20_b), (kd_gap_stats, kd_gap_b)]:
+                    if b_val is not None:  # 결측치(None)는 구간 집계에서 제외
+                        stat_dict[b_val]['games'] += 1
+                        stat_dict[b_val]['profit'] += t['pnl']
+                        stat_dict[b_val]['slippage'] += slippage_cost
+                        stat_dict[b_val]['gross_profit'] += t_gross_profit
+                        stat_dict[b_val]['gross_loss'] += t_gross_loss
+                        stat_dict[b_val]['sum_profit_pct'] += profit_pct
+                        if t['is_win']: stat_dict[b_val]['wins'] += 1
                 # -----------------------------------------------------
 
                 # RSI 집계
@@ -1300,8 +1270,8 @@ def main():
                 atr_str = f"{atr_val:.2f}%"
                 bw_str = f"{bw_pct:.2f}%"
 
-                # 한글 폭 고려한 커스텀 출력
-                row_str = f"{lpad(stock_name, 14)} | {lpad(open_date_str, 10)} | {lpad(open_time_str, 8)} | {lpad(close_time_str, 8)} | {rpad(hold_str, 8)} | {rpad(ep_str, 10)} | {rpad(xp_str, 10)} | {rpad(surge_str, 11)} | {rpad(gap_str, 10)} | {rpad(pct_str, 9)} | {rpad(max_pct_str, 9)} | {rpad(f'{rsi_val:.1f}', 6)} | {rpad(atr_str, 7)} | {rpad(f'{adx_val:.1f}', 6)} | {rpad(bw_str, 10)}"
+                # 한글 폭 고려한 커스텀 출력 (시간 삭제, 매도일 추가)
+                row_str = f"{lpad(stock_name, 14)} | {lpad(open_date_str, 10)} | {lpad(close_date_str, 10)} | {rpad(hold_str, 8)} | {rpad(ep_str, 10)} | {rpad(xp_str, 10)} | {rpad(surge_str, 11)} | {rpad(gap_str, 10)} | {rpad(pct_str, 9)} | {rpad(max_pct_str, 9)} | {rpad(f'{rsi_val:.1f}', 6)} | {rpad(atr_str, 7)} | {rpad(f'{adx_val:.1f}', 6)} | {rpad(bw_str, 10)}"
                 print(f"{row_str} {mark}")
 
     print("=" * calc_width(header_1))
