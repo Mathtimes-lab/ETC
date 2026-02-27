@@ -1,533 +1,533 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>이태원동 부동산 법인 증여 전략 리포트</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <style>
-        body {
-            font-family: 'Noto Sans KR', sans-serif;
-            background-color: #f1f5f9;
-            color: #1e293b;
-            word-break: keep-all;
-        }
-        .serif {
-            font-family: 'Playfair Display', serif;
-        }
-        .bg-custom-dark {
-            background-color: #0f172a; /* Slate 900 */
-        }
-        .text-custom-gold {
-            color: #d4af37;
-        }
-        .border-custom-gold {
-            border-color: #d4af37;
-        }
-        .section-fade {
-            animation: fadeIn 0.8s ease-out forwards;
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        @keyframes fadeIn {
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .delay-100 { animation-delay: 0.1s; }
-        .delay-200 { animation-delay: 0.2s; }
-        .delay-300 { animation-delay: 0.3s; }
-        
-        .text-readable {
-            line-height: 1.6;
-            letter-spacing: -0.025em;
-        }
-        
-        .tax-table th { background-color: #f8fafc; color: #64748b; font-weight: 600; font-size: 0.8rem; padding: 0.5rem; text-align: center; border-bottom: 2px solid #e2e8f0; }
-        .tax-table td { padding: 0.5rem; font-size: 0.85rem; border-bottom: 1px solid #e2e8f0; text-align: center; color: #334155; }
-        .tax-table tr:last-child td { border-bottom: none; }
-        
-        .calc-box {
-            background-color: #f8fafc;
-            border-left: 3px solid #64748b;
-            padding: 1rem;
-            margin-top: 0.5rem;
-            font-size: 0.85rem;
-            color: #475569;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이태원동 부동산 법인 증여 전략 리포트</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f1f5f9;
+            color: #1e293b;
+            word-break: keep-all;
+        }
+        .serif {
+            font-family: 'Playfair Display', serif;
+        }
+        .bg-custom-dark {
+            background-color: #0f172a; /* Slate 900 */
+        }
+        .text-custom-gold {
+            color: #d4af37;
+        }
+        .border-custom-gold {
+            border-color: #d4af37;
+        }
+        .section-fade {
+            animation: fadeIn 0.8s ease-out forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        @keyframes fadeIn {
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .delay-100 { animation-delay: 0.1s; }
+        .delay-200 { animation-delay: 0.2s; }
+        .delay-300 { animation-delay: 0.3s; }
+        
+        .text-readable {
+            line-height: 1.6;
+            letter-spacing: -0.025em;
+        }
+        
+        .tax-table th { background-color: #f8fafc; color: #64748b; font-weight: 600; font-size: 0.8rem; padding: 0.5rem; text-align: center; border-bottom: 2px solid #e2e8f0; }
+        .tax-table td { padding: 0.5rem; font-size: 0.85rem; border-bottom: 1px solid #e2e8f0; text-align: center; color: #334155; }
+        .tax-table tr:last-child td { border-bottom: none; }
+        
+        .calc-box {
+            background-color: #f8fafc;
+            border-left: 3px solid #64748b;
+            padding: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: #475569;
+        }
+    </style>
 </head>
 <body>
 
-    <!-- Cover Section -->
-    <header class="relative bg-custom-dark text-white overflow-hidden min-h-[500px] flex items-center justify-center">
-        <div class="absolute inset-0 opacity-30 bg-[url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center"></div>
-        <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-slate-900/80"></div>
-        
-        <div class="relative z-10 text-center max-w-4xl px-6">
-            <div class="inline-block border border-custom-gold px-4 py-1 rounded-full text-custom-gold text-xs tracking-widest mb-6 uppercase">Private Estate Planning</div>
-            <h1 class="text-4xl md:text-5xl font-bold serif mb-4 leading-tight">
-                용산구 이태원동<br>부동산 법인 증여 솔루션
-            </h1>
-            <p class="text-gray-300 text-lg md:text-xl font-light mb-8">
-                미래 가치 상승에 대비한<br>선제적 상속세 절세 및 법인 활용 전략
-            </p>
-            <div class="flex flex-col md:flex-row gap-4 justify-center text-sm">
-                <div class="bg-white/10 backdrop-blur-md px-6 py-3 rounded border border-white/20">
-                    <span class="block text-gray-400 text-xs">증여 대상</span>
-                    <span class="font-bold">이태원동 96-56 (토지 50%)</span>
-                </div>
-                <div class="bg-white/10 backdrop-blur-md px-6 py-3 rounded border border-white/20">
-                    <span class="block text-gray-400 text-xs">수증인</span>
-                    <span class="font-bold">시대에듀주식회사 (법인)</span>
-                </div>
-            </div>
-        </div>
-    </header>
+    <!-- Cover Section -->
+    <header class="relative bg-custom-dark text-white overflow-hidden min-h-[500px] flex items-center justify-center">
+        <div class="absolute inset-0 opacity-30 bg-[url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center"></div>
+        <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-slate-900/80"></div>
+        
+        <div class="relative z-10 text-center max-w-4xl px-6">
+            <div class="inline-block border border-custom-gold px-4 py-1 rounded-full text-custom-gold text-xs tracking-widest mb-6 uppercase">Private Estate Planning</div>
+            <h1 class="text-4xl md:text-5xl font-bold serif mb-4 leading-tight">
+                용산구 이태원동<br>부동산 법인 증여 솔루션
+            </h1>
+            <p class="text-gray-300 text-lg md:text-xl font-light mb-8">
+                미래 가치 상승에 대비한<br>선제적 상속세 절세 및 법인 활용 전략
+            </p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center text-sm">
+                <div class="bg-white/10 backdrop-blur-md px-6 py-3 rounded border border-white/20">
+                    <span class="block text-gray-400 text-xs">증여 대상</span>
+                    <span class="font-bold">이태원동 96-56 (토지 50%)</span>
+                </div>
+                <div class="bg-white/10 backdrop-blur-md px-6 py-3 rounded border border-white/20">
+                    <span class="block text-gray-400 text-xs">수증인</span>
+                    <span class="font-bold">시대에듀주식회사 (법인)</span>
+                </div>
+            </div>
+        </div>
+    </header>
 
-    <!-- Executive Summary Dashboard -->
-    <section class="max-w-6xl mx-auto px-6 -mt-16 relative z-20 mb-20">
-        <div class="bg-white rounded-xl shadow-2xl p-8 border-t-4 border-custom-gold section-fade">
-            <h2 class="text-2xl font-bold text-slate-800 mb-6 flex items-center">
-                <span class="w-2 h-8 bg-custom-dark mr-3 rounded-sm"></span>
-                최적 실행 구조 (2025.01 기준 정밀 산출)
-            </h2>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <!-- Card 1 -->
-                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100">
-                    <p class="text-sm text-gray-500 mb-2">토지 평가액 (전체)</p>
-                    <p class="text-2xl font-bold text-slate-900">8.04억 원</p>
-                    <p class="text-xs text-gray-400 mt-1">803,675,558원 (주택+상가)</p>
-                </div>
-                <!-- Card 2 -->
-                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100">
-                    <p class="text-sm text-gray-500 mb-2">증여 지분 가액 (50%)</p>
-                    <p class="text-2xl font-bold text-blue-900">4.02억 원</p>
-                    <p class="text-xs text-blue-600 mt-1">401,837,779원</p>
-                </div>
-                <!-- Card 3 -->
-                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100 relative overflow-hidden">
-                    <div class="absolute top-0 right-0 bg-blue-100 text-blue-600 text-[10px] font-bold px-2 py-1 rounded-bl">UPDATED</div>
-                    <p class="text-sm text-gray-500 mb-2">법인 인수 부채 총액</p>
-                    <p class="text-2xl font-bold text-red-700">2.00억 원</p>
-                    <p class="text-xs text-red-500 mt-1 font-bold">대출 1.85억 + 보증금 0.15억</p>
-                    <p class="text-[10px] text-gray-400 mt-2 border-t border-gray-200 pt-2 leading-tight">
-                        (총 대출 3.7억 및 보증금 0.3억 가정,<br>
-                        <span class="font-bold text-gray-500">부채 2억원 정밀 세팅</span>)
-                    </p>
-                </div>
-                <!-- Card 4 -->
-                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100 border-l-4 border-l-custom-gold">
-                    <p class="text-sm text-gray-500 mb-2">순수 증여 가액 (Net)</p>
-                    <p class="text-3xl font-bold text-custom-gold">2.02억 원</p>
-                    <p class="text-xs text-gray-500 mt-1">201,837,779원 (자산-부채)</p>
-                </div>
-            </div>
+    <!-- Executive Summary Dashboard -->
+    <section class="max-w-6xl mx-auto px-6 -mt-16 relative z-20 mb-20">
+        <div class="bg-white rounded-xl shadow-2xl p-8 border-t-4 border-custom-gold section-fade">
+            <h2 class="text-2xl font-bold text-slate-800 mb-6 flex items-center">
+                <span class="w-2 h-8 bg-custom-dark mr-3 rounded-sm"></span>
+                최적 실행 구조 (2025.01 기준 정밀 산출)
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Card 1 -->
+                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100">
+                    <p class="text-sm text-gray-500 mb-2">토지 평가액 (전체)</p>
+                    <p class="text-2xl font-bold text-slate-900">8.04억 원</p>
+                    <p class="text-xs text-gray-400 mt-1">803,675,558원 (주택+상가)</p>
+                </div>
+                <!-- Card 2 -->
+                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100">
+                    <p class="text-sm text-gray-500 mb-2">증여 지분 가액 (50%)</p>
+                    <p class="text-2xl font-bold text-blue-900">4.02억 원</p>
+                    <p class="text-xs text-blue-600 mt-1">401,837,779원</p>
+                </div>
+                <!-- Card 3 -->
+                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 bg-blue-100 text-blue-600 text-[10px] font-bold px-2 py-1 rounded-bl">UPDATED</div>
+                    <p class="text-sm text-gray-500 mb-2">법인 인수 부채 총액</p>
+                    <p class="text-2xl font-bold text-red-700">2.00억 원</p>
+                    <p class="text-xs text-red-500 mt-1 font-bold">대출 1.85억 + 보증금 0.15억</p>
+                    <p class="text-[10px] text-gray-400 mt-2 border-t border-gray-200 pt-2 leading-tight">
+                        (총 대출 3.7억 및 보증금 0.3억 가정,<br>
+                        <span class="font-bold text-gray-500">부채 2억원 정밀 세팅</span>)
+                    </p>
+                </div>
+                <!-- Card 4 -->
+                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100 border-l-4 border-l-custom-gold">
+                    <p class="text-sm text-gray-500 mb-2">순수 증여 가액 (Net)</p>
+                    <p class="text-3xl font-bold text-custom-gold">2.02억 원</p>
+                    <p class="text-xs text-gray-500 mt-1">201,837,779원 (자산-부채)</p>
+                </div>
+            </div>
 
-            <!-- Detailed Land Valuation Table -->
-            <div class="mt-8 bg-slate-50 rounded-lg border border-slate-200 p-6">
-                <h3 class="text-sm font-bold text-slate-700 mb-4 flex items-center">
-                    <span class="bg-slate-200 text-slate-600 px-2 py-1 rounded text-xs mr-2">세무사 정밀 산출값</span>
-                    토지 평가액 및 구성 상세 (단위: 원)
-                </h3>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm text-center border-collapse">
-                        <thead class="bg-slate-100 text-slate-600">
-                            <tr>
-                                <th class="p-2 border border-slate-200 w-1/4">구분</th>
-                                <th class="p-2 border border-slate-200 w-1/4">평가액 (공시지가 안분)</th>
-                                <th class="p-2 border border-slate-200 w-1/4">비고</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="p-2 border border-slate-200 font-bold text-slate-700">주택부수토지</td>
-                                <td class="p-2 border border-slate-200 text-right">258,827,258</td>
-                                <td class="p-2 border border-slate-200 text-xs text-gray-500">개별공시지가 안분</td>
-                            </tr>
-                            <tr>
-                                <td class="p-2 border border-slate-200 font-bold text-slate-700">상가부수토지</td>
-                                <td class="p-2 border border-slate-200 text-right">544,848,300</td>
-                                <td class="p-2 border border-slate-200 text-xs text-gray-500">기준시가</td>
-                            </tr>
-                            <tr class="bg-blue-50">
-                                <td class="p-2 border border-blue-100 font-bold text-blue-800">합계 (증여가액)</td>
-                                <td class="p-2 border border-blue-100 text-right font-bold text-blue-800">803,675,558</td>
-                                <td class="p-2 border border-blue-100 text-blue-800 text-xs font-bold">전체 토지 가액</td>
-                            </tr>
-                            <tr class="bg-custom-gold/10">
-                                <td class="p-2 border border-orange-100 font-bold text-orange-800">50% 지분 가액</td>
-                                <td class="p-2 border border-orange-100 text-right font-bold text-orange-800">401,837,779</td>
-                                <td class="p-2 border border-orange-100 text-orange-800 text-xs font-bold">법인 이전 자산</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </section>
+            <!-- Detailed Land Valuation Table -->
+            <div class="mt-8 bg-slate-50 rounded-lg border border-slate-200 p-6">
+                <h3 class="text-sm font-bold text-slate-700 mb-4 flex items-center">
+                    <span class="bg-slate-200 text-slate-600 px-2 py-1 rounded text-xs mr-2">세무사 정밀 산출값</span>
+                    토지 평가액 및 구성 상세 (단위: 원)
+                </h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-center border-collapse">
+                        <thead class="bg-slate-100 text-slate-600">
+                            <tr>
+                                <th class="p-2 border border-slate-200 w-1/4">구분</th>
+                                <th class="p-2 border border-slate-200 w-1/4">평가액 (공시지가 안분)</th>
+                                <th class="p-2 border border-slate-200 w-1/4">비고</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="p-2 border border-slate-200 font-bold text-slate-700">주택부수토지</td>
+                                <td class="p-2 border border-slate-200 text-right">258,827,258</td>
+                                <td class="p-2 border border-slate-200 text-xs text-gray-500">개별공시지가 안분</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2 border border-slate-200 font-bold text-slate-700">상가부수토지</td>
+                                <td class="p-2 border border-slate-200 text-right">544,848,300</td>
+                                <td class="p-2 border border-slate-200 text-xs text-gray-500">기준시가</td>
+                            </tr>
+                            <tr class="bg-blue-50">
+                                <td class="p-2 border border-blue-100 font-bold text-blue-800">합계 (증여가액)</td>
+                                <td class="p-2 border border-blue-100 text-right font-bold text-blue-800">803,675,558</td>
+                                <td class="p-2 border border-blue-100 text-blue-800 text-xs font-bold">전체 토지 가액</td>
+                            </tr>
+                            <tr class="bg-custom-gold/10">
+                                <td class="p-2 border border-orange-100 font-bold text-orange-800">50% 지분 가액</td>
+                                <td class="p-2 border border-orange-100 text-right font-bold text-orange-800">401,837,779</td>
+                                <td class="p-2 border border-orange-100 text-orange-800 text-xs font-bold">법인 이전 자산</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
 
-    <!-- Strategy Analysis -->
-    <section class="max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-2 gap-12">
-        <!-- Left: Why Corporation? -->
-        <div class="section-fade delay-100">
-            <h3 class="text-2xl font-bold text-slate-800 mb-6">💡 법인 증여의 3대 핵심 효과</h3>
-            <div class="space-y-6">
-                <div class="flex group">
-                    <div class="flex-shrink-0 w-12 h-12 bg-custom-dark text-white flex items-center justify-center rounded-full font-bold text-xl group-hover:bg-custom-gold transition-colors">1</div>
-                    <div class="ml-6">
-                        <div class="flex items-center gap-2 mb-1">
-                            <h4 class="text-lg font-bold text-slate-900">상속 합산 기간 단축 (10년 → 5년)</h4>
-                        </div>
-                        <p class="text-sm text-gray-600 mt-2 leading-relaxed text-readable">
-                            개인(자녀)에게 증여 시 10년 내 상속 발생 시 상속재산에 합산되나, <span class="font-bold text-blue-700">법인에게 증여 시 5년만 지나면 상속재산에서 완전 제외</span>됩니다.
-                        </p>
-                        <span class="block bg-blue-50 p-3 mt-2 rounded text-xs border border-blue-200">
-                            <strong class="text-blue-800">[관련 법령: 상속세 및 증여세법 제13조]</strong><br>
-                            "상속인 외의 자(법인 등)에게 증여한 재산은 상속 개시일 전 <strong class="underline">5년 이내</strong>의 것만 상속재산가액에 가산한다."
-                        </span>
-                    </div>
-                </div>
+    <!-- Strategy Analysis -->
+    <section class="max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-2 gap-12">
+        <!-- Left: Why Corporation? -->
+        <div class="section-fade delay-100">
+            <h3 class="text-2xl font-bold text-slate-800 mb-6">💡 법인 증여의 3대 핵심 효과</h3>
+            <div class="space-y-6">
+                <div class="flex group">
+                    <div class="flex-shrink-0 w-12 h-12 bg-custom-dark text-white flex items-center justify-center rounded-full font-bold text-xl group-hover:bg-custom-gold transition-colors">1</div>
+                    <div class="ml-6">
+                        <div class="flex items-center gap-2 mb-1">
+                            <h4 class="text-lg font-bold text-slate-900">상속 합산 기간 단축 (10년 → 5년)</h4>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-2 leading-relaxed text-readable">
+                            개인(자녀)에게 증여 시 10년 내 상속 발생 시 상속재산에 합산되나, <span class="font-bold text-blue-700">법인에게 증여 시 5년만 지나면 상속재산에서 완전 제외</span>됩니다.
+                        </p>
+                        <span class="block bg-blue-50 p-3 mt-2 rounded text-xs border border-blue-200">
+                            <strong class="text-blue-800">[관련 법령: 상속세 및 증여세법 제13조]</strong><br>
+                            "상속인 외의 자(법인 등)에게 증여한 재산은 상속 개시일 전 <strong class="underline">5년 이내</strong>의 것만 상속재산가액에 가산한다."
+                        </span>
+                    </div>
+                </div>
 
-                <div class="flex group">
-                    <div class="flex-shrink-0 w-12 h-12 bg-custom-dark text-white flex items-center justify-center rounded-full font-bold text-xl group-hover:bg-custom-gold transition-colors">2</div>
-                    <div class="ml-6">
-                        <div class="flex items-center gap-2 mb-1">
-                            <h4 class="text-lg font-bold text-slate-900">주주 증여의제 완벽 해결</h4>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 border border-green-200">Safe</span>
-                        </div>
-                        <p class="text-sm text-gray-600 mt-2 leading-relaxed text-readable">
-                            순자산 2.01억에서 법인세 약 1,834만원을 차감한 이익을 주주가 나누어 갖습니다.
-                            <br>
-                            <span class="block bg-green-50 p-3 mt-2 rounded text-xs border border-green-200">
-                                <strong>[정밀 검토 결과]</strong><br>
-                                주주 1인당 증여이익: <strong>91,744,301원</strong><br>
-                                <span class="text-green-700">👉 1억 원 미만이므로 증여세 <strong>0원</strong> (과세 제외)</span>
-                            </span>
-                        </p>
-                    </div>
-                </div>
+                <div class="flex group">
+                    <div class="flex-shrink-0 w-12 h-12 bg-custom-dark text-white flex items-center justify-center rounded-full font-bold text-xl group-hover:bg-custom-gold transition-colors">2</div>
+                    <div class="ml-6">
+                        <div class="flex items-center gap-2 mb-1">
+                            <h4 class="text-lg font-bold text-slate-900">주주 증여의제 완벽 해결</h4>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 border border-green-200">Safe</span>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-2 leading-relaxed text-readable">
+                            순자산 2.01억에서 법인세 약 1,834만원을 차감한 이익을 주주가 나누어 갖습니다.
+                            <br>
+                            <span class="block bg-green-50 p-3 mt-2 rounded text-xs border border-green-200">
+                                <strong>[정밀 검토 결과]</strong><br>
+                                주주 1인당 증여이익: <strong>91,744,301원</strong><br>
+                                <span class="text-green-700">👉 1억 원 미만이므로 증여세 <strong>0원</strong> (과세 제외)</span>
+                            </span>
+                        </p>
+                    </div>
+                </div>
 
-                <div class="flex group">
-                    <div class="flex-shrink-0 w-12 h-12 bg-custom-dark text-white flex items-center justify-center rounded-full font-bold text-xl group-hover:bg-custom-gold transition-colors">3</div>
-                    <div class="ml-6">
-                        <h4 class="text-lg font-bold text-slate-900">양도세 이연 및 법인세 효과</h4>
-                        <p class="text-sm text-gray-600 mt-2 leading-relaxed text-readable">
-                            개인이 추후 양도 시 높은 양도소득세가 부과되나, 법인은 양도 차익에 대해 <span class="font-bold text-blue-700">법인세(10~20% 구간)</span>만 부담하므로 처분 시 세후 수익이 극대화됩니다.
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
+                <div class="flex group">
+                    <div class="flex-shrink-0 w-12 h-12 bg-custom-dark text-white flex items-center justify-center rounded-full font-bold text-xl group-hover:bg-custom-gold transition-colors">3</div>
+                    <div class="ml-6">
+                        <h4 class="text-lg font-bold text-slate-900">양도세 이연 및 법인세 효과</h4>
+                        <p class="text-sm text-gray-600 mt-2 leading-relaxed text-readable">
+                            개인이 추후 양도 시 높은 양도소득세가 부과되나, 법인은 양도 차익에 대해 <span class="font-bold text-blue-700">법인세(10~20% 구간)</span>만 부담하므로 처분 시 세후 수익이 극대화됩니다.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        <!-- Right: Tax Chart -->
-        <div class="bg-white p-8 rounded-xl shadow-lg border border-slate-100 section-fade delay-200">
-            <div class="flex items-center justify-between mb-2">
-                <h3 class="text-xl font-bold text-slate-800">15년 후 상속세 절세 효과</h3>
-                <span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded">HOT ISSUE</span>
-            </div>
-            <p class="text-sm text-gray-500 mb-6 border-b pb-4">
-                가정: 15년 후 이태원 부동산 가액이 <span class="text-slate-900 font-bold">40억 원</span>이 된다고 전제 시
-            </p>
-            
-            <canvas id="taxComparisonChart"></canvas>
-            
-            <div class="mt-6 bg-red-50 p-4 rounded-lg border border-red-100">
-                <div class="flex items-start">
-                    <span class="text-2xl mr-3">🚨</span>
-                    <div>
-                        <p class="text-sm text-red-800 font-bold mb-1">상속세 폭탄 경고</p>
-                        <p class="text-xs text-red-700 leading-relaxed text-readable">
-                            15년 후 부동산 가치가 40억이 될 경우, 50% 지분(20억) 상속 시 <span class="font-bold text-lg underline">약 8억 원</span>의 상속세가 추가 부과됩니다.
-                            <br>(20억 × 40% 세율 적용 가정)
-                        </p>
-                    </div>
-                </div>
-            </div>
-            <p class="text-xs text-gray-400 mt-3 text-right">
-                * 현재 증여 시 비용: 약 0.71억 (세금 합계)
-            </p>
-        </div>
-    </section>
+        <!-- Right: Tax Chart -->
+        <div class="bg-white p-8 rounded-xl shadow-lg border border-slate-100 section-fade delay-200">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-xl font-bold text-slate-800">15년 후 상속세 절세 효과</h3>
+                <span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded">HOT ISSUE</span>
+            </div>
+            <p class="text-sm text-gray-500 mb-6 border-b pb-4">
+                가정: 15년 후 이태원 부동산 가액이 <span class="text-slate-900 font-bold">40억 원</span>이 된다고 전제 시
+            </p>
+            
+            <canvas id="taxComparisonChart"></canvas>
+            
+            <div class="mt-6 bg-red-50 p-4 rounded-lg border border-red-100">
+                <div class="flex items-start">
+                    <span class="text-2xl mr-3">🚨</span>
+                    <div>
+                        <p class="text-sm text-red-800 font-bold mb-1">상속세 폭탄 경고</p>
+                        <p class="text-xs text-red-700 leading-relaxed text-readable">
+                            15년 후 부동산 가치가 40억이 될 경우, 50% 지분(20억) 상속 시 <span class="font-bold text-lg underline">약 8억 원</span>의 상속세가 추가 부과됩니다.
+                            <br>(20억 × 40% 세율 적용 가정)
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <p class="text-xs text-gray-400 mt-3 text-right">
+                * 현재 증여 시 비용: 약 0.71억 (세금 합계)
+            </p>
+        </div>
+    </section>
 
-    <!-- NEW: Estimated Tax Summary -->
-    <section class="max-w-6xl mx-auto px-6 py-12">
-        <div class="bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden section-fade delay-300">
-            <div class="bg-slate-800 text-white p-6 flex justify-between items-center">
-                <h3 class="text-xl font-bold flex items-center">
-                    <span class="mr-2">📊</span> 종합 예상 세금 시뮬레이션
-                </h3>
-                <div class="text-right">
-                    <span class="text-xs bg-slate-700 px-3 py-1 rounded-full text-gray-300">데이터 근거: 2025.01 세무사 산출</span>
-                </div>
-            </div>
-            
-            <div class="p-8 pb-4 grid grid-cols-1 lg:grid-cols-2 gap-10">
-                <!-- Left Column: Acquisition Tax & Details -->
-                <div>
-                    <!-- 1. Acquisition Tax -->
-                    <div class="mb-8">
-                        <div class="flex justify-between items-center mb-4 border-l-4 border-blue-600 pl-3">
-                            <h4 class="text-lg font-bold text-slate-800">1. 법인 취득세</h4>
-                            <span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded">납부: 취득일 + 60일</span>
-                        </div>
-                        <div class="overflow-x-auto mb-2">
-                            <table class="w-full tax-table">
-                                <thead>
-                                    <tr>
-                                        <th>구분</th>
-                                        <th>상세</th>
-                                        <th>과세표준</th>
-                                        <th>세율</th>
-                                        <th>세액</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td rowspan="2" class="font-bold text-blue-600 border-r border-gray-100">무상취득<br>(2.02억)</td>
-                                        <td class="bg-gray-50">주택 40%</td>
-                                        <td>80,735,111</td>
-                                        <td class="text-red-500 font-bold">12.4%</td>
-                                        <td>10,011,153</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="bg-gray-50">근생 60%</td>
-                                        <td>121,102,667</td>
-                                        <td>4.0%</td>
-                                        <td>4,844,106</td>
-                                    </tr>
-                                    <tr>
-                                        <td rowspan="2" class="font-bold text-red-600 border-r border-gray-100">유상취득<br>(2.00억)</td>
-                                        <td class="bg-gray-50">주택 40%</td>
-                                        <td>80,000,000</td>
-                                        <td class="text-red-500 font-bold">12.4%</td>
-                                        <td>9,920,000</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="bg-gray-50">근생 60%</td>
-                                        <td>120,000,000</td>
-                                        <td>4.6%</td>
-                                        <td>5,520,000</td>
-                                    </tr>
-                                    <tr class="bg-slate-100">
-                                        <td colspan="4" class="font-bold text-right pr-4">합계</td>
-                                        <td class="font-bold text-blue-800">약 30,295,259 원</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="calc-box">
-                            <strong>🧮 산출 근거:</strong><br>
-                            - 주택/근생 비율(40:60) 적용 (요청 사항 반영)<br>
-                            - 과세표준: 순자산 2.01억(무상) + 부채 2.0억(유상)
-                        </div>
-                    </div>
-                </div>
+    <!-- NEW: Estimated Tax Summary -->
+    <section class="max-w-6xl mx-auto px-6 py-12">
+        <div class="bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden section-fade delay-300">
+            <div class="bg-slate-800 text-white p-6 flex justify-between items-center">
+                <h3 class="text-xl font-bold flex items-center">
+                    <span class="mr-2">📊</span> 종합 예상 세금 시뮬레이션
+                </h3>
+                <div class="text-right">
+                    <span class="text-xs bg-slate-700 px-3 py-1 rounded-full text-gray-300">데이터 근거: 2025.01 세무사 산출</span>
+                </div>
+            </div>
+            
+            <div class="p-8 pb-4 grid grid-cols-1 lg:grid-cols-2 gap-10">
+                <!-- Left Column: Acquisition Tax & Details -->
+                <div>
+                    <!-- 1. Acquisition Tax -->
+                    <div class="mb-8">
+                        <div class="flex justify-between items-center mb-4 border-l-4 border-blue-600 pl-3">
+                            <h4 class="text-lg font-bold text-slate-800">1. 법인 취득세</h4>
+                            <span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded">납부: 취득일 + 60일</span>
+                        </div>
+                        <div class="overflow-x-auto mb-2">
+                            <table class="w-full tax-table">
+                                <thead>
+                                    <tr>
+                                        <th>구분</th>
+                                        <th>상세</th>
+                                        <th>과세표준</th>
+                                        <th>세율</th>
+                                        <th>세액</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td rowspan="2" class="font-bold text-blue-600 border-r border-gray-100">무상취득<br>(2.02억)</td>
+                                        <td class="bg-gray-50">주택 40%</td>
+                                        <td>80,735,111</td>
+                                        <td class="text-red-500 font-bold">12.4%</td>
+                                        <td>10,011,153</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="bg-gray-50">근생 60%</td>
+                                        <td>121,102,667</td>
+                                        <td>4.0%</td>
+                                        <td>4,844,106</td>
+                                    </tr>
+                                    <tr>
+                                        <td rowspan="2" class="font-bold text-red-600 border-r border-gray-100">유상취득<br>(2.00억)</td>
+                                        <td class="bg-gray-50">주택 40%</td>
+                                        <td>80,000,000</td>
+                                        <td class="text-red-500 font-bold">12.4%</td>
+                                        <td>9,920,000</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="bg-gray-50">근생 60%</td>
+                                        <td>120,000,000</td>
+                                        <td>4.6%</td>
+                                        <td>5,520,000</td>
+                                    </tr>
+                                    <tr class="bg-slate-100">
+                                        <td colspan="4" class="font-bold text-right pr-4">합계</td>
+                                        <td class="font-bold text-blue-800">약 30,295,259 원</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="calc-box">
+                            <strong>🧮 산출 근거:</strong><br>
+                            - 주택/근생 비율(40:60) 적용 (요청 사항 반영)<br>
+                            - 과세표준: 순자산 2.01억(무상) + 부채 2.0억(유상)
+                        </div>
+                    </div>
+                </div>
 
-                <!-- Right Column: Other Taxes & Logic -->
-                <div class="space-y-6">
-                    <!-- 2. Corp Tax -->
-                    <div class="bg-slate-50 rounded-lg border border-slate-200 p-4">
-                        <div class="flex justify-between items-center mb-2">
-                            <div class="flex items-center gap-2">
-                                <h4 class="font-bold text-slate-800">2. 법인세 (자산수증이익)</h4>
-                                <span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">다음 해 3월</span>
-                            </div>
-                            <span class="text-xl font-bold text-slate-800">18,349,178 원</span>
-                        </div>
-                        <div class="calc-box bg-white border-l-slate-400">
-                            <strong>🧮 산출 근거 (사진 참조):</strong><br>
-                            - 순증여액(자산수증이익): 201,837,779원<br>
-                            - 과세표준 × 세율 - 누진공제 적용 산출값
-                        </div>
-                    </div>
+                <!-- Right Column: Other Taxes & Logic -->
+                <div class="space-y-6">
+                    <!-- 2. Corp Tax -->
+                    <div class="bg-slate-50 rounded-lg border border-slate-200 p-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-bold text-slate-800">2. 법인세 (자산수증이익)</h4>
+                                <span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">다음 해 3월</span>
+                            </div>
+                            <span class="text-xl font-bold text-slate-800">18,349,178 원</span>
+                        </div>
+                        <div class="calc-box bg-white border-l-slate-400">
+                            <strong>🧮 산출 근거 (사진 참조):</strong><br>
+                            - 순증여액(자산수증이익): 201,837,779원<br>
+                            - 과세표준 × 세율 - 누진공제 적용 산출값
+                        </div>
+                    </div>
 
-                    <!-- 3. Gift Tax -->
-                    <div class="bg-green-50 rounded-lg border border-green-200 p-4">
-                        <div class="flex justify-between items-center mb-2">
-                            <div class="flex items-center gap-2">
-                                <h4 class="font-bold text-green-800">3. 주주 증여세 (증여의제)</h4>
-                                <span class="text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded">비과세</span>
-                            </div>
-                            <span class="text-xl font-bold text-green-700">0 원</span>
-                        </div>
-                        <div class="calc-box bg-white border-l-green-400 text-green-900">
-                            <strong>🧮 산출 근거 (사진 참조):</strong><br>
-                            - 주주 1인당 증여이익: <strong>91,744,301원</strong><br>
-                            - 1억 원 미만이므로 과세 대상 아님
-                        </div>
-                    </div>
+                    <!-- 3. Gift Tax -->
+                    <div class="bg-green-50 rounded-lg border border-green-200 p-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-bold text-green-800">3. 주주 증여세 (증여의제)</h4>
+                                <span class="text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded">비과세</span>
+                            </div>
+                            <span class="text-xl font-bold text-green-700">0 원</span>
+                        </div>
+                        <div class="calc-box bg-white border-l-green-400 text-green-900">
+                            <strong>🧮 산출 근거 (사진 참조):</strong><br>
+                            - 주주 1인당 증여이익: <strong>91,744,301원</strong><br>
+                            - 1억 원 미만이므로 과세 대상 아님
+                        </div>
+                    </div>
 
-                    <!-- 4. Capital Gains Tax -->
-                    <div class="bg-orange-50 rounded-lg border border-orange-200 p-4">
-                        <div class="flex justify-between items-center mb-2">
-                            <div class="flex items-center gap-2">
-                                <h4 class="font-bold text-orange-800">4. 양도소득세 (모친)</h4>
-                                <span class="text-[10px] bg-orange-200 text-orange-700 px-1.5 py-0.5 rounded">양도일+2개월</span>
-                            </div>
-                            <span class="text-xl font-bold text-orange-700">22,703,546 원</span>
-                        </div>
-                        <div class="calc-box bg-white border-l-orange-400 text-orange-900">
-                            <strong>🧮 산출 근거 (사진 참조):</strong><br>
-                            - 양도가액: 200,000,000 / 취득가액: 47,732,962<br>
-                            - 양도차익: 150,835,050<br>
-                            - 장기보유특별공제: 45,250,515 차감 후 세율 적용
-                        </div>
-                    </div>
-                </div>
-            </div>
+                    <!-- 4. Capital Gains Tax -->
+                    <div class="bg-orange-50 rounded-lg border border-orange-200 p-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-bold text-orange-800">4. 양도소득세 (모친)</h4>
+                                <span class="text-[10px] bg-orange-200 text-orange-700 px-1.5 py-0.5 rounded">양도일+2개월</span>
+                            </div>
+                            <span class="text-xl font-bold text-orange-700">22,703,546 원</span>
+                        </div>
+                        <div class="calc-box bg-white border-l-orange-400 text-orange-900">
+                            <strong>🧮 산출 근거 (사진 참조):</strong><br>
+                            - 양도가액: 200,000,000 / 취득가액: 47,732,962<br>
+                            - 양도차익: 150,835,050<br>
+                            - 장기보유특별공제: 45,250,515 차감 후 세율 적용
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-            <!-- Total Summary Block -->
-            <div class="bg-slate-900 text-white p-6 md:p-8 flex flex-col md:flex-row justify-between items-center border-t border-slate-700 mt-0">
-                <div class="mb-4 md:mb-0 text-center md:text-left">
-                    <h4 class="text-xl font-bold text-custom-gold mb-1">총 예상 세금 합계</h4>
-                    <p class="text-sm text-gray-400">취득세 + 법인세 + 양도소득세 (순수 세금)</p>
-                </div>
-                <div class="text-center md:text-right">
-                    <span class="block text-3xl font-bold text-white mb-1">약 7,135만 원</span>
-                    <div class="text-xs text-gray-400 bg-slate-800 px-3 py-2 rounded inline-block text-right">
-                        1. 취득세(3,029만) + 2. 법인세(1,835만) + 4. 양도세(2,270만)<br>
-                        <span class="text-gray-500">* 법무/세무 대행 수수료 별도</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
+            <!-- Total Summary Block -->
+            <div class="bg-slate-900 text-white p-6 md:p-8 flex flex-col md:flex-row justify-between items-center border-t border-slate-700 mt-0">
+                <div class="mb-4 md:mb-0 text-center md:text-left">
+                    <h4 class="text-xl font-bold text-custom-gold mb-1">총 예상 세금 합계</h4>
+                    <p class="text-sm text-gray-400">취득세 + 법인세 + 양도소득세 (순수 세금)</p>
+                </div>
+                <div class="text-center md:text-right">
+                    <span class="block text-3xl font-bold text-white mb-1">약 7,135만 원</span>
+                    <div class="text-xs text-gray-400 bg-slate-800 px-3 py-2 rounded inline-block text-right">
+                        1. 취득세(3,029만) + 2. 법인세(1,835만) + 4. 양도세(2,270만)<br>
+                        <span class="text-gray-500">* 법무/세무 대행 수수료 별도</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-    <!-- Risk Management (Q&A) -->
-    <section class="bg-slate-900 text-white py-16">
-        <div class="max-w-5xl mx-auto px-6">
-            <h3 class="text-3xl font-bold text-custom-gold mb-10 text-center serif">핵심 쟁점 및 리스크 분석</h3>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- Q1 -->
-                <div class="bg-slate-800 p-6 rounded-lg section-fade delay-100">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-red-500 text-xs font-bold px-2 py-1 rounded text-white mr-3">RISK CHECK 1</span>
-                        <h4 class="font-bold text-lg">토지+건물 합산 10억 초과 시 세무조사?</h4>
-                    </div>
-                    <p class="text-gray-300 text-sm mb-4 text-readable">
-                        "10억 원" 기준은 국세청의 '고액 상속/증여 재산 감정평가 사업' 대상 선정의 주요 기준 중 하나입니다.
-                    </p>
-                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
-                        <li class="flex items-start"><span class="text-green-400 mr-2 flex-shrink-0">✔</span> <span>50% 지분 증여 시, 증여 재산 가액 자체는 10억 미만(약 4.0억)으로 떨어져 <strong>형식적인 조사 대상 우선순위에서는 밀릴 수 있습니다.</strong></span></li>
-                        <li class="flex items-start"><span class="text-yellow-400 mr-2 flex-shrink-0">⚠</span> <span>단, 이태원과 같은 <strong>'핫플레이스'</strong>는 공시지가와 시세 차이가 커서 금액과 무관하게 직권 감정평가 대상이 될 위험은 상존합니다.</span></li>
-                    </ul>
-                </div>
+    <!-- Risk Management (Q&A) -->
+    <section class="bg-slate-900 text-white py-16">
+        <div class="max-w-5xl mx-auto px-6">
+            <h3 class="text-3xl font-bold text-custom-gold mb-10 text-center serif">핵심 쟁점 및 리스크 분석</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Q1 -->
+                <div class="bg-slate-800 p-6 rounded-lg section-fade delay-100">
+                    <div class="flex items-center mb-4">
+                        <span class="bg-red-500 text-xs font-bold px-2 py-1 rounded text-white mr-3">RISK CHECK 1</span>
+                        <h4 class="font-bold text-lg">토지+건물 합산 10억 초과 시 세무조사?</h4>
+                    </div>
+                    <p class="text-gray-300 text-sm mb-4 text-readable">
+                        "10억 원" 기준은 국세청의 '고액 상속/증여 재산 감정평가 사업' 대상 선정의 주요 기준 중 하나입니다.
+                    </p>
+                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
+                        <li class="flex items-start"><span class="text-green-400 mr-2 flex-shrink-0">✔</span> <span>50% 지분 증여 시, 증여 재산 가액 자체는 10억 미만(약 4.0억)으로 떨어져 <strong>형식적인 조사 대상 우선순위에서는 밀릴 수 있습니다.</strong></span></li>
+                        <li class="flex items-start"><span class="text-yellow-400 mr-2 flex-shrink-0">⚠</span> <span>단, 이태원과 같은 <strong>'핫플레이스'</strong>는 공시지가와 시세 차이가 커서 금액과 무관하게 직권 감정평가 대상이 될 위험은 상존합니다.</span></li>
+                    </ul>
+                </div>
 
-                <!-- RISK CHECK 2 -->
-                <div class="bg-slate-800 p-6 rounded-lg section-fade delay-200 border border-red-900/30">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-red-600 text-xs font-bold px-2 py-1 rounded text-white mr-3 animate-pulse">RISK CHECK 2</span>
-                        <h4 class="font-bold text-lg text-red-100">등기상 과다 설정액(7.32억) 리스크</h4>
-                    </div>
-                    <p class="text-gray-300 text-sm mb-4 text-readable">
-                        등기부등본 확인 결과, 채권최고액 합계가 <strong>7.32억 원</strong>에 달합니다.
-                    </p>
-                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
-                        <li class="flex items-start"><span class="text-red-400 mr-2 flex-shrink-0">!</span> <span><strong>시가 포착 위험:</strong> 국세청은 이를 근거로 실제 가치를 공시지가(8.0억)보다 훨씬 높은 <strong>10억 원 이상</strong>으로 추정할 수 있습니다.</span></li>
-                        <li class="flex items-start"><span class="text-yellow-400 mr-2 flex-shrink-0">⚠</span> <span><strong>감정평가 노출:</strong> 과거 감정가액이 노출될 경우, 증여세를 공시지가가 아닌 '감정가액' 기준으로 과세할 명분이 됩니다.</span></li>
-                    </ul>
-                </div>
+                <!-- RISK CHECK 2 -->
+                <div class="bg-slate-800 p-6 rounded-lg section-fade delay-200 border border-red-900/30">
+                    <div class="flex items-center mb-4">
+                        <span class="bg-red-600 text-xs font-bold px-2 py-1 rounded text-white mr-3 animate-pulse">RISK CHECK 2</span>
+                        <h4 class="font-bold text-lg text-red-100">등기상 과다 설정액(7.32억) 리스크</h4>
+                    </div>
+                    <p class="text-gray-300 text-sm mb-4 text-readable">
+                        등기부등본 확인 결과, 채권최고액 합계가 <strong>7.32억 원</strong>에 달합니다.
+                    </p>
+                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
+                        <li class="flex items-start"><span class="text-red-400 mr-2 flex-shrink-0">!</span> <span><strong>시가 포착 위험:</strong> 국세청은 이를 근거로 실제 가치를 공시지가(8.0억)보다 훨씬 높은 <strong>10억 원 이상</strong>으로 추정할 수 있습니다.</span></li>
+                        <li class="flex items-start"><span class="text-yellow-400 mr-2 flex-shrink-0">⚠</span> <span><strong>감정평가 노출:</strong> 과거 감정가액이 노출될 경우, 증여세를 공시지가가 아닌 '감정가액' 기준으로 과세할 명분이 됩니다.</span></li>
+                    </ul>
+                </div>
 
-                <!-- Q2 -->
-                <div class="bg-slate-800 p-6 rounded-lg section-fade delay-200">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-blue-500 text-xs font-bold px-2 py-1 rounded text-white mr-3">STRATEGY 3</span>
-                        <h4 class="font-bold text-lg">증여 후 대출 및 감정평가 금지</h4>
-                    </div>
-                    <p class="text-gray-300 text-sm mb-4 text-readable">
-                        세무사님의 조언(1년 내 대출 금지)은 매우 타당합니다.
-                    </p>
-                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
-                        <li class="flex items-start"><span class="text-green-400 mr-2 flex-shrink-0">✔</span> <span><strong>최소 1년, 안전하게는 2년</strong> 동안은 해당 필지에 대한 감정평가가 수반되는 행위(대출, 매매 시도 등)를 금지해야 합니다.</span></li>
-                    </ul>
-                </div>
-                
-                 <!-- Q4 -->
-                 <div class="bg-slate-800 p-6 rounded-lg section-fade delay-300">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-green-500 text-xs font-bold px-2 py-1 rounded text-white mr-3">TIP 4</span>
-                        <h4 class="font-bold text-lg">부담부 증여 양도세</h4>
-                    </div>
-                    <p class="text-gray-300 text-sm mb-4 text-readable">
-                         부담부 증여 시 채무 인수액(2.0억)은 모친이 법인에게 유상 양도한 것으로 봅니다.
-                    </p>
-                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
-                        <li class="flex items-start"><span class="text-green-400 mr-2 flex-shrink-0">✔</span> <span>모친에게 <strong>양도소득세</strong>가 발생합니다. (양도차익 약 1.5억 발생)</span></li>
-                        <li class="flex items-start"><span class="text-blue-400 mr-2 flex-shrink-0">💡</span> <span>증여세보다 양도세가 유리한 구간이며, 장기보유특별공제를 활용하여 세부담을 최적화한 설계입니다.</span></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </section>
+                <!-- Q2 -->
+                <div class="bg-slate-800 p-6 rounded-lg section-fade delay-200">
+                    <div class="flex items-center mb-4">
+                        <span class="bg-blue-500 text-xs font-bold px-2 py-1 rounded text-white mr-3">STRATEGY 3</span>
+                        <h4 class="font-bold text-lg">증여 후 대출 및 감정평가 금지</h4>
+                    </div>
+                    <p class="text-gray-300 text-sm mb-4 text-readable">
+                        세무사님의 조언(1년 내 대출 금지)은 매우 타당합니다.
+                    </p>
+                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
+                        <li class="flex items-start"><span class="text-green-400 mr-2 flex-shrink-0">✔</span> <span><strong>최소 1년, 안전하게는 2년</strong> 동안은 해당 필지에 대한 감정평가가 수반되는 행위(대출, 매매 시도 등)를 금지해야 합니다.</span></li>
+                    </ul>
+                </div>
+                
+                 <!-- Q4 -->
+                 <div class="bg-slate-800 p-6 rounded-lg section-fade delay-300">
+                    <div class="flex items-center mb-4">
+                        <span class="bg-green-500 text-xs font-bold px-2 py-1 rounded text-white mr-3">TIP 4</span>
+                        <h4 class="font-bold text-lg">부담부 증여 양도세</h4>
+                    </div>
+                    <p class="text-gray-300 text-sm mb-4 text-readable">
+                         부담부 증여 시 채무 인수액(2.0억)은 모친이 법인에게 유상 양도한 것으로 봅니다.
+                    </p>
+                    <ul class="text-sm space-y-2 text-gray-400 text-readable">
+                        <li class="flex items-start"><span class="text-green-400 mr-2 flex-shrink-0">✔</span> <span>모친에게 <strong>양도소득세</strong>가 발생합니다. (양도차익 약 1.5억 발생)</span></li>
+                        <li class="flex items-start"><span class="text-blue-400 mr-2 flex-shrink-0">💡</span> <span>증여세보다 양도세가 유리한 구간이며, 장기보유특별공제를 활용하여 세부담을 최적화한 설계입니다.</span></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
 
-    <!-- Footer -->
-    <footer class="bg-gray-100 py-10 border-t border-gray-200 mt-12">
-        <div class="max-w-4xl mx-auto px-6 text-center">
-            <p class="font-serif text-xl font-bold text-slate-900 mb-2">AI Estate Strategy Report</p>
-            <p class="text-gray-500 text-xs mb-6 leading-relaxed text-readable">
-                본 리포트는 제공된 정보를 바탕으로 시뮬레이션 된 결과입니다. <br>
-                국세청의 '꼬마빌딩 감정평가 사업' 등 정책 변화에 따라 실제 과세 결과는 달라질 수 있습니다.<br>
-                반드시 실행 전 세무 전문가와 최종 검토를 진행하시기 바랍니다.
-            </p>
-            <div class="text-xs text-gray-400">
-                &copy; 2024 Sidaedu Estate Plan. Confidential.
-            </div>
-        </div>
-    </footer>
+    <!-- Footer -->
+    <footer class="bg-gray-100 py-10 border-t border-gray-200 mt-12">
+        <div class="max-w-4xl mx-auto px-6 text-center">
+            <p class="font-serif text-xl font-bold text-slate-900 mb-2">AI Estate Strategy Report</p>
+            <p class="text-gray-500 text-xs mb-6 leading-relaxed text-readable">
+                본 리포트는 제공된 정보를 바탕으로 시뮬레이션 된 결과입니다. <br>
+                국세청의 '꼬마빌딩 감정평가 사업' 등 정책 변화에 따라 실제 과세 결과는 달라질 수 있습니다.<br>
+                반드시 실행 전 세무 전문가와 최종 검토를 진행하시기 바랍니다.
+            </p>
+            <div class="text-xs text-gray-400">
+                &copy; 2024 Sidaedu Estate Plan. Confidential.
+            </div>
+        </div>
+    </footer>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const ctx = document.getElementById('taxComparisonChart').getContext('2d');
-            const comparisonChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['15년 후 상속 시 (예상)', '현재 법인 증여 실행 시'],
-                    datasets: [
-                        {
-                            label: '예상 총 세금 부담액 (단위: 억 원)',
-                            data: [8.0, 0.71], /* 15년후 40억가정 50%지분 상속세 vs 현재 비용(0.71) */
-                            backgroundColor: [
-                                '#ef4444', // Red for high tax
-                                '#3b82f6'  // Blue for optimization
-                            ],
-                            borderRadius: 6,
-                            barThickness: 50
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { display: false },
-                        title: {
-                            display: true,
-                            text: '미래 가치 상승 시 세금 부담 비교',
-                            padding: { bottom: 20 }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.parsed.y + ' 억 원';
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { display: true, drawBorder: false },
-                            max: 9 // y축 최대값 조정
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        });
-    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const ctx = document.getElementById('taxComparisonChart').getContext('2d');
+            const comparisonChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['15년 후 상속 시 (예상)', '현재 법인 증여 실행 시'],
+                    datasets: [
+                        {
+                            label: '예상 총 세금 부담액 (단위: 억 원)',
+                            data: [8.0, 0.71], /* 15년후 40억가정 50%지분 상속세 vs 현재 비용(0.71) */
+                            backgroundColor: [
+                                '#ef4444', // Red for high tax
+                                '#3b82f6'  // Blue for optimization
+                            ],
+                            borderRadius: 6,
+                            barThickness: 50
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false },
+                        title: {
+                            display: true,
+                            text: '미래 가치 상승 시 세금 부담 비교',
+                            padding: { bottom: 20 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y + ' 억 원';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { display: true, drawBorder: false },
+                            max: 9 // y축 최대값 조정
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
 </body>
 </html>
