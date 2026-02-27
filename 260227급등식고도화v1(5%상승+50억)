@@ -38,13 +38,14 @@ SLIPPAGE_PCT = 0.005  # 💸 분석 리포트용 슬리피지 페널티 (0.005 =
 
 # [2] 매수(진입) 조건 설정
 TARGET_PCT = 0.05  # 🚀 돌파 상승률: 전일 종가 대비 당일 고가 최소 상승률
-GAP_MIN = -0.30  # 📉 최소 갭상승률 (-0.05 = -5%)
+GAP_MIN = -0.35  # 📉 최소 갭상승률 (-0.05 = -5%)
 GAP_MAX = 0.35  # 📈 최대 갭상승률 (0.05 = 5%)
-VOL_SURGE = 0  # 💥 거래량 폭증: 평균 대비 당일 거래량 배수 (3.0 = 300% 이상)
+VOL_SURGE = 3.0  # 💥 거래량 폭증: 평균 대비 당일 거래량 배수 (3.0 = 300% 이상)
 VOL_PERIOD = 20  # 📊 평균 거래량을 산출할 기간(일)
 MA_TREND_FAST = 10  # 📈 정배열 판별용 단기 이평선
 MA_TREND_SLOW = 20  # 📉 정배열 판별용 중기 이평선
 MA_VWAP_PROXY = 60  # 🛡️ 세력선(단가) 방어용 장기 이평선 (이 선 위에 있을 때만 매수)
+USE_VWAP_PROXY_FILTER = 1  # 🛡️ 세력선(60일선) 상회 조건 사용 여부 (1: 적용, 0: 미적용)
 PREV_MA_ALIGN = 1  # 📈 1봉전 기준 단기-중기 매도선(3선, 5선) 정배열 여부 (1: 적용, 0: 미적용)
 PREV_TRADE_VAL_MIN = 5000000000  # 💰 1봉전 기준 최소 거래대금 하한선 (기본 50억)
 
@@ -281,6 +282,7 @@ STRATEGY_PARAMS = (
     ('ma_trend_fast', MA_TREND_FAST),
     ('ma_trend_slow', MA_TREND_SLOW),
     ('ma_vwap_proxy', MA_VWAP_PROXY),
+    ('use_vwap_proxy_filter', USE_VWAP_PROXY_FILTER),
     ('ma_fast', MA_SELL_FAST),
     ('ma_slow', MA_SELL_SLOW),
     ('slippage_pct', SLIPPAGE_PCT),
@@ -477,8 +479,9 @@ class CustomDailyStrategy(bt.Strategy):
             # [조건 C] 추세 필터: 단기선이 중기선 위에 있는 정배열 상태 (1봉 전 기준 교정)
             if self.ma_trend_fast_line[-1] <= self.ma_trend_slow_line[-1]: return
 
-            # [조건 D] HTS 구현용 VWAP 대체: 긴 추세 이평선 위에 위치하여 하락장 휩쏘 방지 (1봉 전 기준 교정)
-            if self.data.close[0] <= self.ma_vwap_proxy_line[-1]: return
+            # [조건 D] HTS 구현용 VWAP 대체: 긴 추세 이평선 위에 위치하여 하락장 휩쏘 방지 (선택 적용 및 1봉 전 기준 교정)
+            if self.p.use_vwap_proxy_filter == 1:
+                if self.data.close[0] <= self.ma_vwap_proxy_line[-1]: return
 
             # [조건 E] 1봉전 3일선과 5일선의 정배열 여부 (선택 적용)
             if self.p.prev_ma_align == 1:
@@ -504,7 +507,16 @@ class CustomDailyStrategy(bt.Strategy):
             # if not (0.2 < atr_pct < 1.0): return
             # -----------------------------------------------
 
-            buy_price = self.data.close[-1] * (1 + self.p.target_pct)  # 전일종가대비 돌파상승률만큼 상승한 가격
+            # 매수가격 계산 로직 (경로 의존성 오류 해결 및 MAX 가격 적용)
+            base_buy_price = self.data.close[-1] * (1 + self.p.target_pct)
+            if self.p.use_vwap_proxy_filter == 1:
+                buy_price = max(base_buy_price, self.ma_vwap_proxy_line[-1])
+            else:
+                buy_price = base_buy_price
+
+            # 가짜 체결 방지: 계산된 진짜 매수가가 당일 고가보다 높다면 장중 체결 불가능하므로 패스
+            if buy_price > self.data.high[0]: return
+
             trade_amount = self.data.close[0] * self.data.volume[0]
 
             cash = self.p.bet_cash
