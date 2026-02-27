@@ -941,6 +941,42 @@ class Kiwoom(QMainWindow):
         if not ("085000" <= now_time_str <= "154000"):
             return
 
+        # [신규] 엑셀(장부)에는 보유중인데, 실제 잔고에는 없는 종목(수동매도) 엑셀 동기화
+        if not self.history_df.empty:
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            now_time = datetime.now().strftime('%H:%M:%S')
+            
+            unsold_mask = self.history_df['매도일'].isna() | (self.history_df['매도일'] == '')
+            unsold_df = self.history_df[unsold_mask]
+            
+            needs_save = False
+            for idx, row in unsold_df.iterrows():
+                code = str(row['종목코드'])
+                if code not in self.held_stocks:
+                    stock_name = str(row.get('종목명', ''))
+                    print(f"[{now_time}] ⚠️ [수동매도 감지] {stock_name}({code}) - 잔고 증발. 엑셀에 수동매도(0원)로 처리합니다.")
+                    
+                    self.history_df.loc[idx, '매도일'] = today_str
+                    self.history_df.loc[idx, '매도시간'] = now_time
+                    self.history_df.loc[idx, '매도목표가'] = 0
+                    self.history_df.loc[idx, '실제매도가'] = 0
+                    self.history_df.loc[idx, '매도슬리피지(%)'] = 0.0
+                    self.history_df.loc[idx, '합산슬리피지(%)'] = 0.0
+                    self.history_df.loc[idx, '테스트수익률(%)'] = 0.0
+                    self.history_df.loc[idx, '실제수익률(%)'] = 0.0
+                    
+                    buy_date = str(self.history_df.loc[idx, '매수일'])
+                    try: 
+                        hold_days = np.busday_count(buy_date, today_str)
+                    except: 
+                        hold_days = 0
+                    self.history_df.loc[idx, '보유기간(일)'] = hold_days
+                    
+                    needs_save = True
+            
+            if needs_save:
+                self.csv_save_timer.start(5000)
+
         # 한글(가변폭) 콘솔 정렬용 헬퍼 함수
         def pad(text, width):
             text = str(text)
