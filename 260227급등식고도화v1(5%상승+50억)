@@ -21,6 +21,12 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 
 # ==========================================
+# [추가] 글로벌 지수 필터용 전역 데이터프레임 초기화
+# ==========================================
+GLOBAL_KOSPI_DF = pd.DataFrame()
+GLOBAL_KOSDAQ_DF = pd.DataFrame()
+
+# ==========================================
 # 💡 [사용자 설정] 전체 환경 및 매매/지표 조건 수치 설정
 # 아래 값들을 수정하여 다양한 조건으로 백테스트를 진행할 수 있습니다.
 # ==========================================
@@ -62,6 +68,16 @@ RSI_MAX = 100  # 📈 RSI 상한선 (이상일 경우 진입 금지)
 # [4] 매도(청산) 조건 설정
 MA_SELL_FAST = 3  # 🏃‍♂️ 청산 데드크로스 판별용 단기 이평선
 MA_SELL_SLOW = 5  # 🚶‍♂️ 청산 데드크로스 판별용 중기 이평선
+
+# [5] 글로벌 지수 필터 조건 설정 (코스피/코스닥 이격도 및 갭상승률)
+KP_MA20_MIN = -100.0  # 📉 코스피 당일 시가의 20일선 기준 이격도 최소(%)
+KP_MA20_MAX = 100.0  # 📈 코스피 당일 시가의 20일선 기준 이격도 최대(%)
+KP_GAP_MIN = -100.0  # 📉 코스피 전일 종가 대비 당일 시가 등락률 최소(%)
+KP_GAP_MAX = 100.0  # 📈 코스피 전일 종가 대비 당일 시가 등락률 최대(%)
+KD_MA20_MIN = -100.0  # 📉 코스닥 당일 시가의 20일선 기준 이격도 최소(%)
+KD_MA20_MAX = 100.0  # 📈 코스닥 당일 시가의 20일선 기준 이격도 최대(%)
+KD_GAP_MIN = -100.0  # 📉 코스닥 전일 종가 대비 당일 시가 등락률 최소(%)
+KD_GAP_MAX = 100.0  # 📈 코스닥 전일 종가 대비 당일 시가 등락률 최대(%)
 
 
 # ==========================================
@@ -295,6 +311,14 @@ STRATEGY_PARAMS = (
     ('bet_cash', BET_CASH),
     ('prev_ma_align', PREV_MA_ALIGN),
     ('prev_trade_val_min', PREV_TRADE_VAL_MIN),
+    ('kp_ma20_min', KP_MA20_MIN),
+    ('kp_ma20_max', KP_MA20_MAX),
+    ('kp_gap_min', KP_GAP_MIN),
+    ('kp_gap_max', KP_GAP_MAX),
+    ('kd_ma20_min', KD_MA20_MIN),
+    ('kd_ma20_max', KD_MA20_MAX),
+    ('kd_gap_min', KD_GAP_MIN),
+    ('kd_gap_max', KD_GAP_MAX),
     ('debug', False),
 )
 
@@ -490,6 +514,29 @@ class CustomDailyStrategy(bt.Strategy):
             # [조건 F] 1봉전 거래대금 하한선 필터
             prev_trade_amount = self.data.close[-1] * self.data.volume[-1]
             if prev_trade_amount < self.p.prev_trade_val_min: return
+
+            # [조건 G] 글로벌 지수 필터 (KOSPI/KOSDAQ 당일 시가 기준 이격도 및 갭상승률)
+            dt_key = pd.to_datetime(current_date)
+
+            # KOSPI 필터 검사
+            if not GLOBAL_KOSPI_DF.empty and dt_key in GLOBAL_KOSPI_DF.index:
+                kp_row = GLOBAL_KOSPI_DF.loc[dt_key]
+                if isinstance(kp_row, pd.DataFrame): kp_row = kp_row.iloc[0]
+                kp_ma_v = kp_row['Open_to_MA20_pct']
+                kp_gap_v = kp_row['Open_Gap_pct']
+
+                if not (self.p.kp_ma20_min <= kp_ma_v <= self.p.kp_ma20_max): return
+                if not (self.p.kp_gap_min <= kp_gap_v <= self.p.kp_gap_max): return
+
+            # KOSDAQ 필터 검사
+            if not GLOBAL_KOSDAQ_DF.empty and dt_key in GLOBAL_KOSDAQ_DF.index:
+                kd_row = GLOBAL_KOSDAQ_DF.loc[dt_key]
+                if isinstance(kd_row, pd.DataFrame): kd_row = kd_row.iloc[0]
+                kd_ma_v = kd_row['Open_to_MA20_pct']
+                kd_gap_v = kd_row['Open_Gap_pct']
+
+                if not (self.p.kd_ma20_min <= kd_ma_v <= self.p.kd_ma20_max): return
+                if not (self.p.kd_gap_min <= kd_gap_v <= self.p.kd_gap_max): return
 
             # --- [추후 적용용 보조지표 조건 주석 처리] ---
             # 밴드폭 필터
@@ -691,47 +738,10 @@ def main():
         return
 
     # ==========================================
-    # [추가] 공통 지수 데이터 로드 및 전처리
+    # [수정] 공통 지수 데이터 로드 및 전처리 (전역 변수 사용)
     # ==========================================
-    kospi_idx_df = pd.DataFrame()
-    kosdaq_idx_df = pd.DataFrame()
-
-    def prep_index_df(path):
-        if os.path.exists(path):
-            df = pd.read_excel(path)
-            # 날짜 형식 정리 (YYYYMMDD 또는 YYYY-MM-DD 모두 대응)
-            df['Date'] = pd.to_datetime(df['Date'].astype(str).str.replace('-', ''))
-            df = df.sort_values('Date').set_index('Date')
-
-            # 키움증권 특성상 정수 변환된 지수(x100) 원래대로 보정
-            for col in ['Open', 'High', 'Low', 'Close']:
-                if df[col].mean() > 10000:
-                    df[col] = df[col] / 100.0
-
-            df['MA20'] = df['Close'].rolling(window=20).mean()
-            # 1. 당일 시가의 20일선 대비 이격도 (전일 20일선 기준)
-            df['Open_to_MA20_pct'] = (df['Open'] / df['MA20'].shift(1) - 1) * 100
-            # 3. 전일 종가 대비 당일 시가 등락률
-            df['Open_Gap_pct'] = (df['Open'] / df['Close'].shift(1) - 1) * 100
-
-            # 2. ADR 임시 대용 데이터 산출 (데이터에 상승/하락 종목수 미포함 시 지수 상승비율 활용)
-            if 'ADR' not in df.columns:
-                df['Up_Day'] = np.where(df['Close'] > df['Close'].shift(1), 1, 0)
-                df['Down_Day'] = np.where(df['Close'] < df['Close'].shift(1), 1, 0)
-                roll_up = df['Up_Day'].rolling(window=20).sum()
-                roll_down = df['Down_Day'].rolling(window=20).sum()
-                df['ADR'] = np.where(roll_down == 0, 100, (roll_up / roll_down) * 100)
-
-            # 전일 ADR을 쉽게 참조하기 위해 한 칸 미뤄둠
-            df['Prev_ADR'] = df['ADR'].shift(1)
-            return df
-        return pd.DataFrame()
-
-    try:
-        kospi_idx_df = prep_index_df(os.path.join(MARKET_DATA_FOLDER, "코스피_일봉지수.xlsx"))
-        kosdaq_idx_df = prep_index_df(os.path.join(MARKET_DATA_FOLDER, "코스닥_일봉지수.xlsx"))
-    except Exception as e:
-        print(f"⚠️ 지수 데이터를 불러오는 중 오류 발생: {e}")
+    kospi_idx_df = GLOBAL_KOSPI_DF
+    kosdaq_idx_df = GLOBAL_KOSDAQ_DF
 
     # 지수 및 기타 분석을 위한 버킷(구간) 분류 함수
     def get_pct_bucket(val):
@@ -1305,19 +1315,15 @@ def main():
     print_and_save_stats("ADX 구간별 성과 분석", adx_stats, adx_buckets, 14)
     print_and_save_stats("전일기준 밴드폭(%) 구간별 성과 분석", bw_stats, bw_buckets, 14)
     print_and_save_stats("당일 갭상승률 구간별 성과 분석", gap_stats, gap_buckets, 14)
-    print_and_save_stats("진입 시점 돌파상승률 구간별 성과 분석", surge_stats, surge_buckets, 16)
     print_and_save_stats("매수 전 20일 평균 거래대금 구간별 성과 분석", avg_amt_20_stats, amount_buckets, 16)
     print_and_save_stats("1봉전 거래대금 구간별 성과 분석", prev_amount_stats, amount_buckets, 14)
-    print_and_save_stats("진입 봉 거래대금 구간별 성과 분석", amount_stats, amount_buckets, 14)
     print_and_save_stats("진입 봉 거래량 폭증 구간별 성과 분석", vol_surge_stats, vol_surge_buckets, 16)
 
     # 코스피/코스닥 지수 관련 분석표
     print_and_save_stats("KOSPI 당일 시가의 20일선 기준 이격도(%) 분석", kp_ma20_stats, pct_buckets, 18)
-    print_and_save_stats("KOSPI 전일 ADR(%) 구간별 성과 분석", kp_adr_stats, adr_buckets, 18)
     print_and_save_stats("KOSPI 전일 종가 대비 당일 시가 등락률(%) 분석", kp_gap_stats, pct_buckets, 18)
 
     print_and_save_stats("KOSDAQ 당일 시가의 20일선 기준 이격도(%) 분석", kd_ma20_stats, pct_buckets, 18)
-    print_and_save_stats("KOSDAQ 전일 ADR(%) 구간별 성과 분석", kd_adr_stats, adr_buckets, 18)
     print_and_save_stats("KOSDAQ 전일 종가 대비 당일 시가 등락률(%) 분석", kd_gap_stats, pct_buckets, 18)
 
     # 월별 분석 출력
