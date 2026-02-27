@@ -509,10 +509,12 @@ class CustomDailyStrategy(bt.Strategy):
 
             # 매수가격 계산 로직 (경로 의존성 오류 해결 및 MAX 가격 적용)
             base_buy_price = self.data.close[-1] * (1 + self.p.target_pct)
+            open_price = self.data.open[0]
+
             if self.p.use_vwap_proxy_filter == 1:
-                buy_price = max(base_buy_price, self.ma_vwap_proxy_line[-1])
+                buy_price = max(base_buy_price, open_price, self.ma_vwap_proxy_line[-1])
             else:
-                buy_price = base_buy_price
+                buy_price = max(base_buy_price, open_price)
 
             # 가짜 체결 방지: 계산된 진짜 매수가가 당일 고가보다 높다면 장중 체결 불가능하므로 패스
             if buy_price > self.data.high[0]: return
