@@ -1,0 +1,201 @@
+import sys
+import os
+import time
+import pandas as pd
+from datetime import datetime, timedelta
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QAxContainer import QAxWidget
+from PyQt5.QtCore import QEventLoop
+
+
+class KiwoomDownloader(QAxWidget):
+    def __init__(self):
+        super().__init__()
+        self._create_kiwoom_instance()
+        self._set_signal_slots()
+        self._login()
+
+        self.remained_data = False
+        self.ohlcv_data = []
+        self.screen_no = "0101"
+
+    def _create_kiwoom_instance(self):
+        self.setControl("KHOPENAPI.KHOpenAPICtrl.1")
+
+    def _set_signal_slots(self):
+        self.OnEventConnect.connect(self._on_event_connect)
+        self.OnReceiveTrData.connect(self._on_receive_tr_data)
+
+    def _login(self):
+        self.login_event_loop = QEventLoop()
+        self.dynamicCall("CommConnect()")
+        self.login_event_loop.exec_()
+
+    def _on_event_connect(self, err_code):
+        if err_code == 0:
+            print("✅ 키움 API 로그인 성공")
+        else:
+            print(f"❌ 로그인 실패 (에러코드: {err_code})")
+        self.login_event_loop.exit()
+
+    def get_stock_name(self, code):
+        return self.dynamicCall("GetMasterCodeName(QString)", [code]).strip()
+
+    def get_kospi_code_list(self):
+        return self.dynamicCall("GetCodeListByMarket(QString)", ["0"]).split(';')[:-1]
+
+    def get_stock_state(self, code):
+        """종목 상태(KOSPI200 등)를 반환하는 로컬 함수"""
+        return self.dynamicCall("GetMasterStockState(QString)", [code])
+
+    def get_listed_shares(self, code):
+        shares = self.dynamicCall("GetMasterListedStockCnt(QString)", [code])
+        return int(shares) if shares else 0
+
+    def check_filter(self, code, name):
+        exclude_keywords = ["스팩", "ETN", "ETF", "리츠", "전환사채", "신주인수권"]
+        if any(keyword in name for keyword in exclude_keywords):
+            return False
+        state = self.get_stock_state(code)
+        if "관리종목" in state or "거래정지" in state or "정리매매" in state:
+            return False
+        return True
+
+    def request_daily_chart(self, code, date):
+        self.ohlcv_data = []
+        self.remained_data = True
+        next_val = 0
+
+        # [수정] 다운로드 목표 날짜를 오늘 기준 10년 전으로 설정
+        target_date = datetime.now() - timedelta(days=3650)
+
+        while self.remained_data:
+            self.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
+            self.dynamicCall("SetInputValue(QString, QString)", "기준일자", date)
+            self.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
+            self._comm_rq_data("opt10081", "주식일봉차트조회", next_val, self.screen_no)
+
+            if self.ohlcv_data:
+                last_date_str = self.ohlcv_data[-1][0]
+                if last_date_str:
+                    last_date_dt = datetime.strptime(last_date_str, "%Y%m%d")
+                    # 10년 전 날짜보다 이전 데이터가 조회되면 중단
+                    if last_date_dt <= target_date:
+                        break
+
+            if self.remained_data:
+                next_val = 2
+                time.sleep(0.5)
+
+        if not self.ohlcv_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(self.ohlcv_data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+        df['Date'] = pd.to_datetime(df['Date'])
+        df = df.sort_values(by='Date').reset_index(drop=True)
+        
+        # [수정] 10년 치 데이터 필터링
+        df = df[df['Date'] >= target_date.strftime('%Y-%m-%d')]
+
+        return df
+
+    def _comm_rq_data(self, trcode, rqname, next_val, screen_no):
+        self.tr_event_loop = QEventLoop()
+        ret = self.dynamicCall("CommRqData(QString, QString, int, QString)", rqname, trcode, next_val, screen_no)
+        if ret != 0:
+            print(f"\n❌ TR 요청 실패 ({rqname}) - 에러코드: {ret}")
+            self.remained_data = False
+            return
+        self.tr_event_loop.exec_()
+
+    def _get_comm_data_int(self, trcode, rqname, index, item_name):
+        """빈 문자열이 반환될 경우의 ValueError를 방지하는 안전한 정수 변환 헬퍼 함수"""
+        val = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, index, item_name).strip()
+        try:
+            return abs(int(val)) if val else 0
+        except ValueError:
+            return 0
+
+    def _on_receive_tr_data(self, screen_no, rqname, trcode, record_name, next_val, unused1, unused2, unused3, unused4):
+        # 연속조회(다음 페이지) 데이터 유무 플래그 업데이트
+        self.remained_data = (next_val == '2')
+        count = self.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+
+        for i in range(count):
+            date = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i, "일자").strip()
+            open_ = self._get_comm_data_int(trcode, rqname, i, "시가")
+            high = self._get_comm_data_int(trcode, rqname, i, "고가")
+            low = self._get_comm_data_int(trcode, rqname, i, "저가")
+            close = self._get_comm_data_int(trcode, rqname, i, "현재가")
+            volume = self._get_comm_data_int(trcode, rqname, i, "거래량")
+
+            self.ohlcv_data.append([date, open_, high, low, close, volume])
+
+        self.tr_event_loop.exit()
+
+
+def main():
+    app = QApplication(sys.argv)
+
+    print("🚀 키움증권 API 인스턴스 생성 중...")
+    kiwoom = KiwoomDownloader()
+
+    # [수정] 저장 폴더명 변경
+    save_dir = "stock_data_pallten"
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    print("⏳ KOSPI 전 종목 정보 로딩 중 (잠시만 기다려주세요)...")
+
+    # 1. KOSPI 전 종목 추출
+    kospi_raw = kiwoom.get_kospi_code_list()
+    final_targets = []
+    
+    for code in kospi_raw:
+        code = ''.join(filter(str.isdigit, code))[-6:]
+        if not code: continue
+        name = kiwoom.get_stock_name(code)
+        
+        # ETF, 스팩, 관리종목 등 필터링
+        if kiwoom.check_filter(code, name):
+            # [수정] 상장주식수 가져오기
+            shares = kiwoom.get_listed_shares(code)
+            final_targets.append((code, name, shares))
+
+    print(f"✅ HTS 기준 코스피 (총 {len(final_targets)}종목) 준비 완료")
+    
+    if len(final_targets) == 0:
+        print("❌ 타겟 종목을 하나도 불러오지 못했습니다.")
+        sys.exit()
+
+    print("🚀 다운로드 시작 (최근 10년 데이터)...")
+
+    today_str = datetime.now().strftime("%Y%m%d")
+    total = len(final_targets)
+
+    for idx, (code, name, shares) in enumerate(final_targets):
+        print(f"[{idx + 1}/{total}] [KOSPI] {name} ({code}) 요청 중...", end=" ", flush=True)
+
+        try:
+            df = kiwoom.request_daily_chart(code, today_str)
+
+            if not df.empty:
+                safe_name = name.replace("/", "_").replace("*", "").replace(":", "")
+                # [수정] 파일명에 상장주식수 기입
+                file_path = os.path.join(save_dir, f"{code}_{safe_name}_{shares}.xlsx")
+                df.to_excel(file_path, index=False)
+                print(f"완료 ({len(df)}건)")
+            else:
+                print("데이터 없음")
+
+            time.sleep(0.5) # TR 초당 요청 횟수 제한 방어
+
+        except Exception as e:
+            print(f"실패 ({e})")
+
+    print(f"\n🎉 '{save_dir}' 폴더에 총 {total}개 코스피 종목의 10년 치 다운로드가 완료되었습니다!")
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()
