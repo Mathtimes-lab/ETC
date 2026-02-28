@@ -49,7 +49,7 @@ MA_TREND_SLOW = 20  # 📉 정배열 판별용 중기 이평선
 MA_VWAP_PROXY = 60  # 🛡️ 세력선(단가) 방어용 장기 이평선 (이 선 위에 있을 때만 매수)
 USE_VWAP_PROXY_FILTER = 1  # 🛡️ 세력선(60일선) 상회 조건 사용 여부 (1: 적용, 0: 미적용)
 PREV_MA_ALIGN = 1  # 📈 1봉전 기준 단기-중기 매도선(3선, 5선) 정배열 여부 (1: 적용, 0: 미적용)
-PREV_TRADE_VAL_MIN = 5000000000  # 💰 1봉전 기준 최소 거래대금 하한선 (기본 50억)
+PREV_TRADE_VAL_MIN = 000000000  # 💰 1봉전 기준 최소 거래대금 하한선 (기본 50억)
 
 # [3] 보조지표 필터 범위 설정
 BOLL_PERIOD = 20  # 〰️ 볼린저밴드 기간
@@ -566,7 +566,7 @@ class CustomDailyStrategy(bt.Strategy):
 
             # [조건 D] HTS 구현용 VWAP 대체: 긴 추세 이평선 위에 위치하여 하락장 휩쏘 방지 (선택 적용 및 1봉 전 기준 교정)
             if self.p.use_vwap_proxy_filter == 1:
-                if self.data.close[0] <= self.ma_vwap_proxy_line[-1]: return
+                if self.data.close[-1] <= self.ma_vwap_proxy_line[-1]: return
 
             # [조건 E] 1봉전 3일선과 5일선의 정배열 여부 (선택 적용)
             if self.p.prev_ma_align == 1:
