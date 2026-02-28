@@ -18,7 +18,7 @@ class KiwoomDownloader(QAxWidget):
         self.remained_data = False
         self.ohlcv_data = []
         self.screen_no = "0101"
-        
+
         # [추가] 스마트 딜레이를 위한 TR 요청 타임스탬프 기록 리스트
         self.tr_timestamps = []
 
@@ -59,25 +59,25 @@ class KiwoomDownloader(QAxWidget):
     def check_filter(self, code, name):
         # 1. 강력한 키워드 필터링 (ETF 브랜드명 및 파생상품 키워드 추가, 우선주 관련 키워드는 제외)
         exclude_keywords = [
-            "스팩", "SPAC", "ETN", "ETF", "리츠", "전환사채", "신주인수권", 
-            "인버스", "레버리지", "KODEX", "TIGER", "KBSTAR", "ARIRANG", 
-            "KINDEX", "HANARO", "KOSEF", "TREX", "마이티", "SOL", "ACE", 
+            "스팩", "SPAC", "ETN", "ETF", "리츠", "전환사채", "신주인수권",
+            "인버스", "레버리지", "KODEX", "TIGER", "KBSTAR", "ARIRANG",
+            "KINDEX", "HANARO", "KOSEF", "TREX", "마이티", "SOL", "ACE",
             "히어로즈", "네비게이터", "TIMEFOLIO", "FOCUS", "선물"
         ]
         if any(keyword in name.upper() for keyword in exclude_keywords):
             return False
-            
+
         # 2. 거래정지, 관리종목 등 필터링
         state = self.get_stock_state(code)
         if "관리종목" in state or "거래정지" in state or "정리매매" in state:
             return False
-            
+
         return True
 
     # [추가] 스마트 딜레이 방어 로직 (요청 횟수 제한 모니터링)
     def _check_tr_limit(self):
         now = time.time()
-        
+
         # 1시간 이상 지난 기록은 큐에서 제거
         self.tr_timestamps = [t for t in self.tr_timestamps if now - t <= 3600]
 
@@ -96,14 +96,14 @@ class KiwoomDownloader(QAxWidget):
 
         # 3. 시간당 1000회 제한 방어
         if len(self.tr_timestamps) >= 950:
-            sleep_time = 3600 - (now - self.tr_timestamps[0]) + 10 # 안전하게 10초 추가
+            sleep_time = 3600 - (now - self.tr_timestamps[0]) + 10  # 안전하게 10초 추가
             if sleep_time > 0:
-                print(f"\n⏳ [스마트 딜레이] 1시간 제한(1000회) 도달 임박. 서버 보호를 위해 약 {sleep_time/60:.1f}분 대기합니다...")
+                print(f"\n⏳ [스마트 딜레이] 1시간 제한(1000회) 도달 임박. 서버 보호를 위해 약 {sleep_time / 60:.1f}분 대기합니다...")
                 time.sleep(sleep_time)
 
         # 현재 요청 시간을 큐에 추가하고 기본 딜레이 적용
         self.tr_timestamps.append(time.time())
-        time.sleep(0.3) 
+        time.sleep(0.3)
 
     def request_daily_chart(self, code, date):
         self.ohlcv_data = []
@@ -117,7 +117,7 @@ class KiwoomDownloader(QAxWidget):
             self.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
             self.dynamicCall("SetInputValue(QString, QString)", "기준일자", date)
             self.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
-            
+
             # [수정] TR 요청 직전에 스마트 딜레이 로직 실행
             self._check_tr_limit()
             self._comm_rq_data("opt10081", "주식일봉차트조회", next_val, self.screen_no)
@@ -139,7 +139,7 @@ class KiwoomDownloader(QAxWidget):
         df = pd.DataFrame(self.ohlcv_data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
         df['Date'] = pd.to_datetime(df['Date'])
         df = df.sort_values(by='Date').reset_index(drop=True)
-        
+
         # 10년 치 데이터 필터링
         df = df[df['Date'] >= target_date.strftime('%Y-%m-%d')]
 
@@ -194,12 +194,12 @@ def main():
     # 1. KOSPI 전 종목 추출
     kospi_raw = kiwoom.get_kospi_code_list()
     final_targets = []
-    
+
     for code in kospi_raw:
         code = ''.join(filter(str.isdigit, code))[-6:]
         if not code: continue
         name = kiwoom.get_stock_name(code)
-        
+
         # 강력해진 필터링 적용 (ETF, 스팩, 관리종목, 우선주 등 제외)
         if kiwoom.check_filter(code, name):
             # 상장주식수 가져오기
@@ -207,7 +207,7 @@ def main():
             final_targets.append((code, name, shares))
 
     print(f"✅ HTS 기준 코스피 (순수 일반종목 총 {len(final_targets)}개) 준비 완료")
-    
+
     if len(final_targets) == 0:
         print("❌ 타겟 종목을 하나도 불러오지 못했습니다.")
         sys.exit()
@@ -218,15 +218,20 @@ def main():
     total = len(final_targets)
 
     for idx, (code, name, shares) in enumerate(final_targets):
+        safe_name = name.replace("/", "_").replace("*", "").replace(":", "")
+        file_path = os.path.join(save_dir, f"{code}_{safe_name}_{shares}.xlsx")
+
+        # [추가] 이어받기 기능: 폴더에 이미 해당 종목의 파일이 존재하면 다운로드를 건너뜀
+        if os.path.exists(file_path):
+            print(f"[{idx + 1}/{total}] [KOSPI] {name} ({code}) 이미 존재함 (건너뜀)")
+            continue
+
         print(f"[{idx + 1}/{total}] [KOSPI] {name} ({code}) 요청 중...", end=" ", flush=True)
 
         try:
             df = kiwoom.request_daily_chart(code, today_str)
 
             if not df.empty:
-                safe_name = name.replace("/", "_").replace("*", "").replace(":", "")
-                # 파일명에 상장주식수 기입
-                file_path = os.path.join(save_dir, f"{code}_{safe_name}_{shares}.xlsx")
                 df.to_excel(file_path, index=False)
                 print(f"완료 ({len(df)}건)")
             else:
