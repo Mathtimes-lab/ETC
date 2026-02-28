@@ -862,7 +862,7 @@ def main():
             return '700억대'
         elif val < 90000000000:
             return '800억대'
-        elif val < 10000000000:
+        elif val < 100000000000:
             return '900억대'
         elif val < 150000000000:
             return '1000~1500억'
