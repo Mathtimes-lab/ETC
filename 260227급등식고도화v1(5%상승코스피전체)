@@ -28,7 +28,7 @@ GLOBAL_KOSDAQ_DF = pd.DataFrame()
 # ==========================================
 
 # [1] 데이터 및 환경 설정
-DATA_FOLDER = "stock_data_51"  # 📂 대상 데이터 폴더명
+DATA_FOLDER = "stock_data_pallten"  # 📂 대상 데이터 폴더명
 MARKET_DATA_FOLDER = "common_market_data"  # 📂 공통 지수 데이터 폴더명 (새로 추가)
 CHART_FOLDER = "saved_charts_min"  # 📂 수익률 차트 저장 폴더명
 ANALYSIS_CHART_FOLDER = "saved_analysis_charts"  # 📂 성과 분석 차트(막대/선 그래프) 저장 폴더명
@@ -552,6 +552,8 @@ class CustomDailyStrategy(bt.Strategy):
             # [조건 A-1] 분봉 캔 단일 급등
             surge_pct = (self.data.high[0] / self.data.close[-1]) - 1
             if surge_pct < self.p.target_pct: return
+
+
 
             # [조건 A-2] 당일 시가 갭상승 범위 필터
             gap_pct = (self.data.open[0] / self.data.close[-1]) - 1
