@@ -200,7 +200,7 @@ def main():
         if not code: continue
         name = kiwoom.get_stock_name(code)
         
-        # 강력해진 필터링 적용 (ETF, 스팩, 관리종목 제외, 우선주는 포함)
+        # 강력해진 필터링 적용 (ETF, 스팩, 관리종목 제외 / 우선주는 포함)
         if kiwoom.check_filter(code, name):
             # 상장주식수 가져오기
             shares = kiwoom.get_listed_shares(code)
@@ -218,15 +218,20 @@ def main():
     total = len(final_targets)
 
     for idx, (code, name, shares) in enumerate(final_targets):
+        safe_name = name.replace("/", "_").replace("*", "").replace(":", "")
+        file_path = os.path.join(save_dir, f"{code}_{safe_name}_{shares}.xlsx")
+
+        # [추가] 이어받기 기능: 폴더에 이미 해당 종목의 파일이 존재하면 다운로드를 건너뜀
+        if os.path.exists(file_path):
+            print(f"[{idx + 1}/{total}] [KOSDAQ] {name} ({code}) 이미 존재함 (건너뜀)")
+            continue
+
         print(f"[{idx + 1}/{total}] [KOSDAQ] {name} ({code}) 요청 중...", end=" ", flush=True)
 
         try:
             df = kiwoom.request_daily_chart(code, today_str)
 
             if not df.empty:
-                safe_name = name.replace("/", "_").replace("*", "").replace(":", "")
-                # 파일명에 상장주식수 기입
-                file_path = os.path.join(save_dir, f"{code}_{safe_name}_{shares}.xlsx")
                 df.to_excel(file_path, index=False)
                 print(f"완료 ({len(df)}건)")
             else:
