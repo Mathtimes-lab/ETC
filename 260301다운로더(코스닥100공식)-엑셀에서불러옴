@@ -156,22 +156,22 @@ def main():
     print("🚀 키움증권 API 인스턴스 생성 중...")
     kiwoom = KiwoomDownloader()
 
-    # 코스닥 150 공식 종목 저장 폴더명
-    save_dir = "stock_data_do150ten"
+    # 코스닥 100 공식 종목 저장 폴더명
+    save_dir = "stock_data_do100ten"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    print("\n⏳ 'do150' 파일에서 코스닥 150 종목 리스트를 읽어옵니다...")
+    print("\n⏳ 'do100' 파일에서 코스닥 100 종목 리스트를 읽어옵니다...")
     official_codes = []
 
     # =========================================================================
-    # [수정] 외부 스크래핑 로직 제거 -> 사용자 제공 파일(do150.xlsx 또는 csv) 직접 로드
+    # 사용자 제공 파일(do100.xlsx 또는 csv) 직접 로드
     # =========================================================================
     try:
         # xlsx 파일을 우선으로 찾고 없으면 csv 확인
-        file_path = "do150.xlsx"
+        file_path = "do100.xlsx"
         if not os.path.exists(file_path):
-            file_path = "do150.csv"
+            file_path = "do100.csv"
             
         if file_path.endswith('.xlsx'):
             df_codes = pd.read_excel(file_path)
@@ -190,7 +190,7 @@ def main():
         
     except Exception as e:
         print(f"\n❌ 종목 리스트 파일을 읽는 중 오류가 발생했습니다: {e}")
-        print("👉 'do150.xlsx' (또는 .csv) 파일이 현재 파이썬 스크립트와 같은 폴더에 있는지, 그리고 '종목코드' 컬럼이 존재하는지 확인해주세요.")
+        print("👉 'do100.xlsx' (또는 .csv) 파일이 현재 파이썬 스크립트와 같은 폴더에 있는지, 그리고 '종목코드' 컬럼이 존재하는지 확인해주세요.")
         sys.exit()
 
     # 추출된 코드들을 바탕으로 실제 키움증권 HTS에 존재하는지 확인
@@ -211,7 +211,7 @@ def main():
             
         final_targets.append((code, name))
 
-    print(f"✅ 다운로드 가능 공식 코스닥 150 종목 (총 {len(final_targets)}개) 준비 완료")
+    print(f"✅ 다운로드 가능 공식 코스닥 100 종목 (총 {len(final_targets)}개) 준비 완료")
 
     print("\n🚀 다운로드 시작 (최근 10년 데이터 / 스마트 딜레이 가동 중)...")
 
@@ -226,10 +226,10 @@ def main():
 
         # 이어받기 기능: 폴더에 이미 해당 종목의 파일이 존재하면 다운로드를 건너뜀
         if os.path.exists(file_path):
-            print(f"[{idx + 1}/{total}] [KOSDAQ 150] {name} ({code}) 이미 존재함 (건너뜀)")
+            print(f"[{idx + 1}/{total}] [KOSDAQ 100] {name} ({code}) 이미 존재함 (건너뜀)")
             continue
 
-        print(f"[{idx + 1}/{total}] [KOSDAQ 150] {name} ({code}) 요청 중...", end=" ", flush=True)
+        print(f"[{idx + 1}/{total}] [KOSDAQ 100] {name} ({code}) 요청 중...", end=" ", flush=True)
 
         try:
             df = kiwoom.request_daily_chart(code, today_str)
@@ -243,7 +243,7 @@ def main():
         except Exception as e:
             print(f"실패 ({e})")
 
-    print(f"\n🎉 '{save_dir}' 폴더에 엑셀 리스트 기준 코스닥 종목의 10년 치 다운로드가 성공적으로 완료되었습니다!")
+    print(f"\n🎉 '{save_dir}' 폴더에 엑셀 리스트 기준 코스닥 100 종목의 10년 치 다운로드가 성공적으로 완료되었습니다!")
     sys.exit()
 
 
