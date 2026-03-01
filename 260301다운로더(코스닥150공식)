@@ -1,0 +1,251 @@
+import sys
+import os
+import time
+import pandas as pd
+from datetime import datetime, timedelta
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QAxContainer import QAxWidget
+from PyQt5.QtCore import QEventLoop
+
+class KiwoomDownloader(QAxWidget):
+    def __init__(self):
+        super().__init__()
+        self._create_kiwoom_instance()
+        self._set_signal_slots()
+        self._login()
+
+        self.remained_data = False
+        self.ohlcv_data = []
+        self.screen_no = "0101"
+        
+        # 스마트 딜레이를 위한 TR 요청 타임스탬프 기록 리스트
+        self.tr_timestamps = []
+
+    def _create_kiwoom_instance(self):
+        self.setControl("KHOPENAPI.KHOpenAPICtrl.1")
+
+    def _set_signal_slots(self):
+        self.OnEventConnect.connect(self._on_event_connect)
+        self.OnReceiveTrData.connect(self._on_receive_tr_data)
+
+    def _login(self):
+        self.login_event_loop = QEventLoop()
+        self.dynamicCall("CommConnect()")
+        self.login_event_loop.exec_()
+
+    def _on_event_connect(self, err_code):
+        if err_code == 0:
+            print("✅ 키움 API 로그인 성공")
+        else:
+            print(f"❌ 로그인 실패 (에러코드: {err_code})")
+        self.login_event_loop.exit()
+
+    def get_stock_name(self, code):
+        return self.dynamicCall("GetMasterCodeName(QString)", [code]).strip()
+
+    def get_stock_state(self, code):
+        return self.dynamicCall("GetMasterStockState(QString)", [code])
+
+    # 스마트 딜레이 방어 로직 (요청 횟수 제한 모니터링)
+    def _check_tr_limit(self):
+        now = time.time()
+        
+        # 1시간 이상 지난 기록은 큐에서 제거
+        self.tr_timestamps = [t for t in self.tr_timestamps if now - t <= 3600]
+
+        # 1. 초당 5회 제한 방어
+        recent_1s = [t for t in self.tr_timestamps if now - t <= 1]
+        if len(recent_1s) >= 4:
+            time.sleep(1)
+            now = time.time()
+
+        # 2. 분당 100회 제한 방어
+        recent_60s = [t for t in self.tr_timestamps if now - t <= 60]
+        if len(recent_60s) >= 90:
+            print(f"\n⏳ [스마트 딜레이] 1분 제한(100회) 도달 임박. 60초간 숨을 고릅니다...")
+            time.sleep(60)
+            now = time.time()
+
+        # 3. 시간당 1000회 제한 방어
+        if len(self.tr_timestamps) >= 950:
+            sleep_time = 3600 - (now - self.tr_timestamps[0]) + 10 # 안전하게 10초 추가
+            if sleep_time > 0:
+                print(f"\n⏳ [스마트 딜레이] 1시간 제한(1000회) 도달 임박. 서버 보호를 위해 약 {sleep_time/60:.1f}분 대기합니다...")
+                time.sleep(sleep_time)
+
+        # 현재 요청 시간을 큐에 추가하고 기본 딜레이 적용
+        self.tr_timestamps.append(time.time())
+        time.sleep(0.3) 
+
+    def request_daily_chart(self, code, date):
+        self.ohlcv_data = []
+        self.remained_data = True
+        next_val = 0
+
+        # 다운로드 목표 날짜를 오늘 기준 10년 전으로 설정
+        target_date = datetime.now() - timedelta(days=3650)
+
+        while self.remained_data:
+            self.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
+            self.dynamicCall("SetInputValue(QString, QString)", "기준일자", date)
+            self.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
+            
+            # TR 요청 직전에 스마트 딜레이 로직 실행
+            self._check_tr_limit()
+            self._comm_rq_data("opt10081", "주식일봉차트조회", next_val, self.screen_no)
+
+            if self.ohlcv_data:
+                last_date_str = self.ohlcv_data[-1][0]
+                if last_date_str:
+                    last_date_dt = datetime.strptime(last_date_str, "%Y%m%d")
+                    # 10년 전 날짜보다 이전 데이터가 조회되면 중단
+                    if last_date_dt <= target_date:
+                        break
+
+            if self.remained_data:
+                next_val = 2
+
+        if not self.ohlcv_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(self.ohlcv_data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+        df['Date'] = pd.to_datetime(df['Date'])
+        df = df.sort_values(by='Date').reset_index(drop=True)
+        
+        # 10년 치 데이터 필터링
+        df = df[df['Date'] >= target_date.strftime('%Y-%m-%d')]
+
+        return df
+
+    def _comm_rq_data(self, trcode, rqname, next_val, screen_no):
+        self.tr_event_loop = QEventLoop()
+        ret = self.dynamicCall("CommRqData(QString, QString, int, QString)", rqname, trcode, next_val, screen_no)
+        if ret != 0:
+            print(f"\n❌ TR 요청 실패 ({rqname}) - 에러코드: {ret}")
+            self.remained_data = False
+            return
+        self.tr_event_loop.exec_()
+
+    def _get_comm_data_int(self, trcode, rqname, index, item_name):
+        val = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, index, item_name).strip()
+        try:
+            return abs(int(val)) if val else 0
+        except ValueError:
+            return 0
+
+    def _on_receive_tr_data(self, screen_no, rqname, trcode, record_name, next_val, unused1, unused2, unused3, unused4):
+        self.remained_data = (next_val == '2')
+        count = self.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+
+        for i in range(count):
+            date = self.dynamicCall("GetCommData(QString, QString, int, QString)", trcode, rqname, i, "일자").strip()
+            open_ = self._get_comm_data_int(trcode, rqname, i, "시가")
+            high = self._get_comm_data_int(trcode, rqname, i, "고가")
+            low = self._get_comm_data_int(trcode, rqname, i, "저가")
+            close = self._get_comm_data_int(trcode, rqname, i, "현재가")
+            volume = self._get_comm_data_int(trcode, rqname, i, "거래량")
+
+            self.ohlcv_data.append([date, open_, high, low, close, volume])
+
+        self.tr_event_loop.exit()
+
+
+def main():
+    app = QApplication(sys.argv)
+
+    print("🚀 키움증권 API 인스턴스 생성 중...")
+    kiwoom = KiwoomDownloader()
+
+    # 코스닥 150 공식 종목 저장 폴더명
+    save_dir = "stock_data_do150ten"
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    print("\n⏳ 'do150' 파일에서 코스닥 150 종목 리스트를 읽어옵니다...")
+    official_codes = []
+
+    # =========================================================================
+    # [수정] 외부 스크래핑 로직 제거 -> 사용자 제공 파일(do150.xlsx 또는 csv) 직접 로드
+    # =========================================================================
+    try:
+        # xlsx 파일을 우선으로 찾고 없으면 csv 확인
+        file_path = "do150.xlsx"
+        if not os.path.exists(file_path):
+            file_path = "do150.csv"
+            
+        if file_path.endswith('.xlsx'):
+            df_codes = pd.read_excel(file_path)
+        else:
+            df_codes = pd.read_csv(file_path)
+
+        # '종목코드' 컬럼 추출. (숫자형일 경우 앞의 '0'이 잘리는 것을 방지하기 위해 6자리 문자열로 변환)
+        if '종목코드' in df_codes.columns:
+            official_codes = df_codes['종목코드'].apply(lambda x: str(x).split('.')[0].zfill(6)).tolist()
+        else:
+            # '종목코드'라는 정확한 이름이 없을 경우 유연하게 대응
+            code_col = [c for c in df_codes.columns if "코드" in str(c) or "code" in str(c).lower()][0]
+            official_codes = df_codes[code_col].apply(lambda x: str(x).split('.')[0].zfill(6)).tolist()
+            
+        print(f"✅ 파일({file_path})에서 총 {len(official_codes)}개의 종목코드를 성공적으로 불러왔습니다.")
+        
+    except Exception as e:
+        print(f"\n❌ 종목 리스트 파일을 읽는 중 오류가 발생했습니다: {e}")
+        print("👉 'do150.xlsx' (또는 .csv) 파일이 현재 파이썬 스크립트와 같은 폴더에 있는지, 그리고 '종목코드' 컬럼이 존재하는지 확인해주세요.")
+        sys.exit()
+
+    # 추출된 코드들을 바탕으로 실제 키움증권 HTS에 존재하는지 확인
+    final_targets = []
+    
+    for code in official_codes:
+        name = kiwoom.get_stock_name(code)
+        
+        # 존재하지 않는 종목이거나, 관리/정지 종목 필터링
+        if not name: 
+            print(f"⚠️ 코드 {code} - HTS에 존재하지 않는 종목코드입니다. 제외합니다.")
+            continue
+        
+        state = kiwoom.get_stock_state(code)
+        if "관리종목" in state or "거래정지" in state or "정리매매" in state:
+            print(f"⚠️ {name}({code}) - {state} 상태이므로 다운로드에서 제외합니다.")
+            continue
+            
+        final_targets.append((code, name))
+
+    print(f"✅ 다운로드 가능 공식 코스닥 150 종목 (총 {len(final_targets)}개) 준비 완료")
+
+    print("\n🚀 다운로드 시작 (최근 10년 데이터 / 스마트 딜레이 가동 중)...")
+
+    today_str = datetime.now().strftime("%Y%m%d")
+    total = len(final_targets)
+
+    for idx, (code, name) in enumerate(final_targets):
+        safe_name = name.replace("/", "_").replace("*", "").replace(":", "")
+        
+        # 파일명에서 상장주식수 제외
+        file_path = os.path.join(save_dir, f"{code}_{safe_name}.xlsx")
+
+        # 이어받기 기능: 폴더에 이미 해당 종목의 파일이 존재하면 다운로드를 건너뜀
+        if os.path.exists(file_path):
+            print(f"[{idx + 1}/{total}] [KOSDAQ 150] {name} ({code}) 이미 존재함 (건너뜀)")
+            continue
+
+        print(f"[{idx + 1}/{total}] [KOSDAQ 150] {name} ({code}) 요청 중...", end=" ", flush=True)
+
+        try:
+            df = kiwoom.request_daily_chart(code, today_str)
+
+            if not df.empty:
+                df.to_excel(file_path, index=False)
+                print(f"완료 ({len(df)}건)")
+            else:
+                print("데이터 없음")
+
+        except Exception as e:
+            print(f"실패 ({e})")
+
+    print(f"\n🎉 '{save_dir}' 폴더에 엑셀 리스트 기준 코스닥 종목의 10년 치 다운로드가 성공적으로 완료되었습니다!")
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()
