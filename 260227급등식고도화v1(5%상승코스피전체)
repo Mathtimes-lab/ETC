@@ -553,7 +553,9 @@ class CustomDailyStrategy(bt.Strategy):
             surge_pct = (self.data.high[0] / self.data.close[-1]) - 1
             if surge_pct < self.p.target_pct: return
 
-
+            # [신규 조건 추가] 2봉전 종가 대비 1봉전 고가가 5% 이하일 것 (전일 과도한 급등 종목 제외)
+            #if (self.data.high[-1] / self.data.close[-2]) > 1.05: return
+            # [신규 조건 추가 끝]
 
             # [조건 A-2] 당일 시가 갭상승 범위 필터
             gap_pct = (self.data.open[0] / self.data.close[-1]) - 1
